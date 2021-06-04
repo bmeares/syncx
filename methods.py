@@ -1,0 +1,156 @@
+#! /usr/bin/env python3
+# -*- coding: utf-8 -*-
+# vim:fenc=utf-8
+
+"""
+Implement the syncing methods.
+"""
+
+from meerschaum.utils.typing import Any, Union, Optional
+from meerschaum.connectors.sql._tools import sql_item_name, table_exists, dateadd_str
+
+def _naive_fetch(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
+    return pipe.connector.read(pipe.parameters['fetch']['definition'], debug=debug)
+
+def _simple_fetch(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
+    pipe.parameters['backtrack_minutes'] = 0
+    return pipe.fetch(debug=debug, **kw)
+
+def _simple_backtrack_fetch(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
+    return pipe.fetch(debug=debug, **kw)
+
+def _simple_slow_id_fetch(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
+    pipe_name = sql_item_name(str(pipe), pipe.connector.flavor)
+    slow_id_st_query = f"""
+    WITH sync_times AS (
+        SELECT id, MAX(dt) AS sync_time
+        FROM {pipe_name}
+        GROUP BY id
+    ) SELECT MIN(sync_time) AS st
+    FROM sync_times
+    """
+    st = pipe.connector.value(slow_id_st_query)
+    return pipe.fetch(begin=st, **kw)
+
+def _append_fetch(
+        pipe,
+        debug: bool=False,
+        new_ids: bool = False,
+        **kw
+    ) -> Union['pd.DataFrame', None]:
+    pipe_name = sql_item_name(str(pipe), pipe.connector.flavor)
+    id_name = sql_item_name(pipe.columns['id'], pipe.connector.flavor)
+    dt_name = sql_item_name(pipe.columns['datetime'], pipe.connector.flavor)
+    cols_types = pipe.get_columns_types(debug=debug)
+    sync_times_query = f"""
+    SELECT {id_name}, MAX({dt_name}) AS sync_time
+    FROM {pipe_name}
+    GROUP BY {id_name}
+    """
+    sync_times = pipe.connector.read(sync_times_query, debug=debug)
+
+    definition = pipe.parameters['fetch']['definition']
+
+    query = f"WITH definition AS ({definition})\n"
+    for _id, _st in sync_times.itertuples(index=False):
+        query += (
+            "SELECT * FROM definition "
+            + f"WHERE {id_name} = CAST('{_id}' AS {cols_types[pipe.columns['id']]})\n"
+            + f"  AND {dt_name} > " + dateadd_str(
+                flavor=pipe.connector.flavor,
+                datepart='minute',
+                number=pipe.parameters.get('backtrack_minutes', 0),
+                begin=_st
+            ) + "\n"
+            + "UNION ALL\n"
+        )
+    query = (
+        query[:(-1 * len('UNION ALL\n'))] if not new_ids
+        else (
+            query + (
+                "SELECT * FROM definition\n"
+                + f"WHERE {id_name} NOT IN ("
+                + ', '.join(
+                    [
+                        f"CAST('{_id}' AS {cols_types[pipe.columns['id']]})"
+                        for _id in sync_times[pipe.columns['id']]
+                    ]
+                ) + ")"
+            )
+        )
+    )
+    return pipe.connector.read(query, debug=debug)
+
+def _join_fetch(
+        pipe,
+        debug: bool=False,
+        new_ids: bool=False,
+        **kw
+    ) -> Union['pd.DataFrame', None]:
+    pipe_name = sql_item_name(str(pipe), pipe.connector.flavor)
+    sync_times_table = ('#' if pipe.connector.flavor == 'mssql' else '') + str(pipe) + "_sync_times"
+    sync_times_name = sql_item_name(sync_times_table, pipe.connector.flavor)
+    id_name = sql_item_name(pipe.columns['id'], pipe.connector.flavor)
+    dt_name = sql_item_name(pipe.columns['datetime'], pipe.connector.flavor)
+    cols_types = pipe.get_columns_types(debug=debug)
+    sync_times_query = f"""
+    SELECT {id_name}, MAX({dt_name}) AS {dt_name}
+    FROM {pipe_name}
+    GROUP BY {id_name}
+    """
+    sync_times = pipe.connector.read(sync_times_query, debug=debug)
+    #  if table_exists(sync_times_table, pipe.connector, debug=debug):
+        #  pipe.connector.exec(f"DROP TABLE {sync_times_name}", silent=True, debug=debug)
+    #  create_temp_table_query = (
+        #  f"CREATE TEMP TABLE {sync_times_name} ("
+        #  + id_name + " " + cols_types[pipe.columns['id']] + ", "
+        #  + dt_name + " " + cols_types[pipe.columns['datetime']] + ")"
+    #  )
+
+    _sync_times_q = ""
+    _created_temp_table = False
+    #  try:
+        #  if pipe.connector.exec(
+            #  create_temp_table_query, debug=debug, silent=True
+        #  ) is not None:
+            #  pipe.connector.to_sql(sync_times, name=sync_times_table, if_exists='append')
+            #  _created_temp_table = True
+    #  except Exception as e:
+        #  _created_temp_table = False
+
+    if not _created_temp_table:
+        _sync_times_q = f",\n{sync_times_name} AS ("
+        for _id, _st in sync_times.itertuples(index=False):
+            _sync_times_q += (
+                f"SELECT CAST('{_id}' AS " + cols_types[pipe.columns['id']] + f") AS {id_name}, "
+                + dateadd_str(
+                    flavor=pipe.connector.flavor,
+                    begin=_st,
+                    datepart='minute',
+                    number=pipe.parameters.get('backtrack_minutes', 0)
+                ) + " AS " + dt_name + "\nUNION ALL\n"
+            )
+        _sync_times_q = _sync_times_q[:(-1 * len('UNION ALL\n'))] + ")"
+
+    definition = pipe.parameters['fetch']['definition']
+    query = f"""
+    WITH definition AS ({definition}){_sync_times_q}
+    SELECT d.*
+    FROM definition AS d
+    LEFT OUTER JOIN {sync_times_name} AS st
+      ON st.{id_name} = d.{id_name}
+    WHERE d.{dt_name} > st.{dt_name}
+    """ + (f"  OR st.{id_name} IS NULL" if new_ids else "")
+    return pipe.connector.read(query, debug=debug)
+
+
+fetch_methods = {
+    'naive': _naive_fetch,
+    'simple': _simple_fetch,
+    'simple-backtrack': _simple_backtrack_fetch,
+    'simple-slow-id': _simple_slow_id_fetch,
+    'append': _append_fetch,
+    'append-new-ids': _append_fetch,
+    'join': _join_fetch,
+    'join-new-ids': _join_fetch,
+}
