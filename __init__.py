@@ -11,6 +11,9 @@ from meerschaum.actions.arguments import add_plugin_argument
 from meerschaum.utils.typing import Optional, Any
 
 __version__ = '0.0.1'
+required = [
+    'numpy', 'prime-sieve', 'dateutil', 'galois',
+]
 
 add_plugin_argument(
     '--fetch-method', help=(
