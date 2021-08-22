@@ -10,7 +10,7 @@ from meerschaum import Pipe
 from meerschaum.plugins import add_plugin_argument, make_action
 from meerschaum.utils.typing import Optional, Any, List, SuccessTuple
 
-__version__ = '0.0.1'
+__version__ = '0.0.2'
 required = [
     'numpy', 'prime-sieve', 'dateutil', 'galois', 'matplotlib',
 ]
