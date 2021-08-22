@@ -99,6 +99,8 @@ def _join_fetch(
     GROUP BY {id_name}
     """
     sync_times = pipe.connector.read(sync_times_query, debug=debug)
+    if len(sync_times) == 0:
+        return _naive_fetch(pipe, debug=debug)
     #  if table_exists(sync_times_table, pipe.connector, debug=debug):
         #  pipe.connector.exec(f"DROP TABLE {sync_times_name}", silent=True, debug=debug)
     #  create_temp_table_query = (

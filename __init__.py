@@ -5,14 +5,14 @@
 """
 Implement experimental syncing methods.
 """
-
+from __future__ import annotations
 from meerschaum import Pipe
-from meerschaum.actions.arguments import add_plugin_argument
-from meerschaum.utils.typing import Optional, Any
+from meerschaum.plugins import add_plugin_argument, make_action
+from meerschaum.utils.typing import Optional, Any, List, SuccessTuple
 
 __version__ = '0.0.1'
 required = [
-    'numpy', 'prime-sieve', 'dateutil', 'galois',
+    'numpy', 'prime-sieve', 'dateutil', 'galois', 'matplotlib',
 ]
 
 add_plugin_argument(
@@ -25,6 +25,53 @@ add_plugin_argument(
         "How many minutes to backtrack when fetching new data."
     )
 )
+add_plugin_argument(
+    '--source', help="Connector keys to the source database (e.g. 'sql:main')"
+)
+add_plugin_argument(
+    '--target', help="Connector keys to the target database (e.g. 'sql:main')"
+)
+@make_action
+def scenarios(
+        action: Optional[List[str]] = None,
+        source: Optional[str] = 'sql:main',
+        target: Optional[str] = 'sql:main',
+        fetch_method: Optional[str] = None,
+        debug: bool = False,
+        **kw
+    ) -> SuccessTuple:
+    """
+    Run synchronization scenario simulations.
+    """
+    from .scenarios import init_scenarios
+    from .methods import fetch_methods
+    from meerschaum.connectors.parse import parse_instance_keys
+    from meerschaum.utils.warnings import info
+    source_connector = parse_instance_keys(source)
+    target_connector = parse_instance_keys(target)
+    _scenarios = init_scenarios(source_connector, target_connector)
+
+    usage = "Usage: scenarios ['" + "', '".join(_scenarios.keys()) + "']"
+
+    run_scenarios = action
+    if not run_scenarios:
+        run_scenarios = _scenarios.keys()
+
+    run_fetch_methods = [fetch_method] if fetch_method is not None else fetch_methods.keys()
+
+    for scenario in run_scenarios:
+        if scenario not in _scenarios:
+            return False, usage
+    
+
+    for _fetch_method in run_fetch_methods:
+        info(f"Testing fetch method '{_fetch_method}'...")
+
+        for scenario_name in run_scenarios:
+            _scenarios[scenario_name].start(_fetch_method, debug=debug)
+
+    return True, "Success"
+
 def fetch(
         pipe: Pipe,
         fetch_method: str = 'join-new-ids',
@@ -63,6 +110,7 @@ def fetch(
             - `join-new-ids`
                 Same as `join` with an `OR` clause to catch new IDs.
     """
+    from meerschaum import Pipe
     from meerschaum.utils.warnings import warn
     from meerschaum.connectors.parse import parse_connector_keys
     definition = pipe.parameters.get('fetch', {}).get('definition', None)
@@ -72,7 +120,8 @@ def fetch(
 
     conn_keys = pipe.parameters.get('fetch', {}).get('connector', 'sql')
     conn = parse_connector_keys(conn_keys)
-    pipe._connector = conn
+    _pipe = Pipe(**pipe.meta)
+    _pipe._connector = conn
 
     if backtrack_minutes is not None:
         pipe.parameters['backtrack_minutes'] = backtrack_minutes
@@ -82,4 +131,11 @@ def fetch(
         warn(f"Invalid fetch method '{fetch_method}'.")
         return None
 
-    return fetch_methods[fetch_method](pipe, debug=debug, new_ids=('new-ids' in fetch_method), **kw)
+    if not pipe.exists(debug=debug):
+        return fetch_methods['naive'](_pipe, debug=debug)
+    return fetch_methods[fetch_method](
+        _pipe,
+        debug = debug,
+        new_ids = ('new-ids' in fetch_method),
+        **kw
+    )

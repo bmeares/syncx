@@ -70,11 +70,11 @@ def main():
     from dateutil.relativedelta import relativedelta
     now = datetime.datetime.utcnow()
     begin = now
-    end = begin + relativedelta(years=1)
+    end = begin + relativedelta(months=1)
 
     begin_int = int(begin.timestamp() - now.timestamp())
     end_int = int(end.timestamp() - now.timestamp())
-    n_rows = 1000
+    n_rows = 100
     missing_rows = 10
     A = [random.choice(range(begin_int, end_int)) for i in range(n_rows)]
     B = A[:(-1 * missing_rows)] 
