@@ -5,9 +5,17 @@
 """
 Implement the syncing methods.
 """
+from __future__ import annotations
 
-from meerschaum.utils.typing import Any, Union, Optional
+from meerschaum import Pipe
+from meerschaum.utils.typing import Any, Union, Optional, SuccessTuple
 from meerschaum.connectors.sql._tools import sql_item_name, table_exists, dateadd_str
+
+#######################################
+#                                     #
+#            Fetch methods            #
+#                                     #
+#######################################
 
 def _naive_fetch(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
     return pipe.connector.read(pipe.parameters['fetch']['definition'], debug=debug)
@@ -159,6 +167,24 @@ def _join_fetch(
     return pipe.connector.read(query, debug=debug)
 
 
+######################################
+#                                    #
+#            Sync methods            #
+#                                    #
+######################################
+
+
+def _iterative_simple_sync(
+        pipe: Pipe,
+        debug: bool = False,
+        **kw
+    ) -> SuccessTuple:
+    """
+    Iterate across a pipe's interval and perform a simple sync for each chunk.
+    """
+    rt0 = pipe.get_sync_time(newest=True, debug=debug)
+    rt1 = pipe.get_sync_time(newest=False, debug=debug)
+
 fetch_methods = {
     'naive': _naive_fetch,
     'simple': _simple_fetch,
@@ -168,4 +194,7 @@ fetch_methods = {
     'append-new-ids': _append_fetch,
     'join': _join_fetch,
     'join-new-ids': _join_fetch,
+}
+sync_methods = {
+    'iterative-simple-sync': _iterative_simple_sync,
 }

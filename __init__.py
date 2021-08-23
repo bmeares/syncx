@@ -18,7 +18,7 @@ required = [
 ]
 
 add_plugin_argument(
-    '--fetch-method', help=(
+    '--sync-method', help=(
         "Type of fetch method to use. Defaults to 'join-new-ids'."
     )
 )
@@ -39,7 +39,7 @@ def scenarios(
         action: Optional[List[str]] = None,
         source: Optional[str] = 'sql:main',
         target: Optional[str] = 'sql:main',
-        fetch_method: Optional[str] = None,
+        sync_method: Optional[str] = None,
         debug: bool = False,
         **kw
     ) -> SuccessTuple:
@@ -47,7 +47,7 @@ def scenarios(
     Run synchronization scenario simulations.
     """
     from .scenarios import init_scenarios, ITERATIONS_PER_SCENARIO_FM
-    from .methods import fetch_methods
+    from .methods import fetch_methods, sync_methods
     from meerschaum.connectors.parse import parse_instance_keys
     from meerschaum.utils.warnings import info
     from meerschaum.utils.packages import import_pandas
@@ -64,7 +64,7 @@ def scenarios(
     if not run_scenarios:
         run_scenarios = _scenarios.keys()
 
-    run_fetch_methods = [fetch_method] if fetch_method is not None else fetch_methods.keys()
+    run_sync_methods = [sync_method] if sync_method is not None else list(fetch_methods.keys()) + list(sync_methods.keys())
 
     for scenario in run_scenarios:
         if scenario not in _scenarios:
@@ -83,14 +83,14 @@ def scenarios(
         info(f"Testing scenario '{scenario_name}'...")
 
         methods_dfs = []
-        for _fetch_method in run_fetch_methods:
-            info(f"Testing fetch method '{_fetch_method}'...")
-            combo_name = scenario_name + '_' + _fetch_method
+        for sm in run_sync_methods:
+            info(f"Testing sync method '{sm}'...")
+            combo_name = scenario_name + '_' + sm
             averages_dfs = []
             for i in range(ITERATIONS_PER_SCENARIO_FM):
                 info(f"Iteration #{i + 1} for scenario '{scenario_name}' with fetch method '{_fetch_method}'.")
-                runtimes_data, error = _scenarios[scenario_name].start(_fetch_method, debug=debug)
-                errors_data.append(ErrorRow(scenario_name, _fetch_method, error))
+                runtimes_data, error = _scenarios[scenario_name].start(sm, debug=debug)
+                errors_data.append(ErrorRow(scenario_name, sm, error))
                 runtimes_df = pd.DataFrame(runtimes_data)
                 averages_dfs.append(
                     duckdb.query(
@@ -109,7 +109,7 @@ def scenarios(
         for _df in methods_dfs[1:]:
             figure_df = figure_df.merge(_df)
 
-        max_rt = max(figure_df[run_fetch_methods].max())
+        max_rt = max(figure_df[run_sync_methods].max())
 
         ### Create one figure per scenario with all of the methods.
         ax = figure_df.plot(x='Month')
@@ -124,15 +124,15 @@ def scenarios(
 
     return True, "Success"
 
-def fetch(
+def sync(
         pipe: Pipe,
-        fetch_method: str = 'join-new-ids',
+        sync_method: str = 'join-new-ids',
         backtrack_minutes: Optional[int] = None,
         debug: bool = False,
         **kw
-    ):
+    ) -> SuccessTuple:
     """
-    :param fetch_method:
+    :param sync_method:
         The method used to request new data based on the cache context.
         Options:
 
@@ -178,16 +178,28 @@ def fetch(
     if backtrack_minutes is not None:
         pipe.parameters['backtrack_minutes'] = backtrack_minutes
 
-    from .methods import fetch_methods
-    if fetch_method not in fetch_methods:
-        warn(f"Invalid fetch method '{fetch_method}'.")
+    from .methods import fetch_methods, sync_methods
+    if sync_method not in sync_methods and sync_method not in fetch_methods:
+        warn(f"Invalid sync method '{sync_method}'.")
         return None
 
+    ### If not optimizations may be made, perform a naive sync.
     if not pipe.exists(debug=debug):
-        return fetch_methods['naive'](_pipe, debug=debug)
-    return fetch_methods[fetch_method](
-        _pipe,
-        debug = debug,
-        new_ids = ('new-ids' in fetch_method),
-        **kw
+        return pipe.sync(
+            fetch_methods['naive'](_pipe, debug=debug)
+        )
+
+    return (
+        pipe.sync(
+            fetch_methods[sync_method](
+                _pipe,
+                new_ids = ('new-ids' in sync_method),
+                debug = debug,
+            )
+        ) if sync_method in fetch_methods
+        else sync_methods[sync_method](
+            _pipe,
+            new_ids = ('new-ids' in sync_method),
+            debug = debug,
+        )
     )
