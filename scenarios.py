@@ -8,7 +8,7 @@ Simulate the various scenarios described in Chapter 2 of the thesis.
 
 from __future__ import annotations
 from dataclasses import dataclass
-from meerschaum.utils.typing import Dict, SuccessTuple, List, Optional
+from meerschaum.utils.typing import Dict, SuccessTuple, List, Optional, Union, Tuple
 from meerschaum.connectors.sql import SQLConnector
 from meerschaum.utils.debug import dprint
 from meerschaum.utils.warnings import info
@@ -55,7 +55,7 @@ class Scenario:
 
     ### The maximum number of seconds rows may be backlogged into the table.
     ### 0 means no backlogging, and `None` means unbounded (any datetime).
-    max_backlog_seconds: int = 0
+    max_backlog_seconds: Union[int, None] = 0
 
     @property 
     def pipe(self):
@@ -228,6 +228,7 @@ class Scenario:
         ### No records are old enough to be backlogged.
         if (
             not self.outages
+            or records_ceiling is None
             or records_ceiling == 0
             or (
                 self.max_backlog_seconds is not None
@@ -261,7 +262,7 @@ class Scenario:
 
     def start(
         self,
-        fetch_method: str,
+        sync_method: str,
         debug: bool = False,
     ) -> Tuple[Dict[str, List[Union[datetime.datetime, float]]], int]:
         """
@@ -291,7 +292,7 @@ class Scenario:
                 last_month = _lm
                 print(
                     "Simulating " + now.strftime('%B %Y')
-                    + f" for scenario '{self.name}' with fetch method '{fetch_method}'..."
+                    + f" for scenario '{self.name}' with sync method '{sync_method}'..."
                 )
 
             self.advance_source_table(now, SIMULATION_STEPSIZE, debug=debug)
@@ -299,7 +300,7 @@ class Scenario:
             
             _start_sync_runtime = time.time()
             self.sync_target_table(
-                fetch_method = fetch_method,
+                sync_method = sync_method,
                 ### Skip BTI if `append-only`.
                 check_existing = ('append-only' not in self.name),
                 debug = debug

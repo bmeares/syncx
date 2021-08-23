@@ -7,8 +7,9 @@ Implement the syncing methods.
 """
 from __future__ import annotations
 
+import datetime
 from meerschaum import Pipe
-from meerschaum.utils.typing import Any, Union, Optional, SuccessTuple
+from meerschaum.utils.typing import Any, Union, Optional, SuccessTuple, Callable
 from meerschaum.connectors.sql._tools import sql_item_name, table_exists, dateadd_str
 
 #######################################
@@ -21,8 +22,15 @@ def _naive_fetch(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
     return pipe.connector.read(pipe.parameters['fetch']['definition'], debug=debug)
 
 def _simple_fetch(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
-    pipe.parameters['backtrack_minutes'] = 0
-    return pipe.fetch(debug=debug, **kw)
+    """
+    Fetch data from the source connector. Forces `backtrack_minutes` to be zero.
+    """
+    old_btm = pipe.parameters.get('fetch', {}).get('backtrack_minutes', None)
+    pipe.parameters['fetch']['backtrack_minutes'] = 0
+    df = pipe.fetch(debug=debug, **kw)
+    if old_btm is None:
+        del pipe.parameters['fetch']['backtrack_minutes']
+    return df
 
 def _simple_backtrack_fetch(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
     return pipe.fetch(debug=debug, **kw)
@@ -173,17 +181,72 @@ def _join_fetch(
 #                                    #
 ######################################
 
+DEFAULT_GROW_BTI_MAX = datetime.timedelta(hours=720)
+DEFAULT_GROW_BTI_FACTOR = 1.4
+def _default_grow_bti(bti: datetime.timedelta) -> datetime.timedelta:
+    """
+    Grow the BTI by 40% and cap at 720 hours.
+    """
+    return max(DEFAULT_GROW_BTI_FACTOR * bti, DEFAULT_GROW_BTI_MAX)
 
 def _iterative_simple_sync(
         pipe: Pipe,
+        bti: Optional[datetime.timedelta] = None,
+        grow_bti: Optional[Callable[[datetime.timedelta], datetime.timedelta]] = None,
         debug: bool = False,
         **kw
     ) -> SuccessTuple:
     """
     Iterate across a pipe's interval and perform a simple sync for each chunk.
+
+    :param pipe:
+        The pipe to sync.
+
+    :param bti:
+        The backtrack interval / chunksize.
+        Defaults to 1 hour.
+
+    :param grow_bti:
+        Function to grow `bti` between iterations.
+        If `grow_bti` is False, do not increase `bti`.
+        Defaults to a 40% increase with a cap of 720 hours.
     """
+
     rt0 = pipe.get_sync_time(newest=True, debug=debug)
     rt1 = pipe.get_sync_time(newest=False, debug=debug)
+    if bti is None:
+        bti = datetime.timedelta(hours=1)
+
+    if grow_bti is None:
+        grow_bti = _default_grow_bti
+
+    ### First sync rows newer than rt0.
+    pipe.sync(
+        fetch_methods['simple'](begin=rt0, debug=debug),
+        debug = debug,
+    )
+
+    et = rt0
+    st = rt0 - bti
+    while st > rt1:
+        ### Perform a simple sync over the interval from st to et.
+        pipe.sync(
+            fetch_methods['simple'](begin=st, end=et, debug=debug),
+            debug = debug,
+        )
+
+        ### Move to the next chunk in the past.
+        bti = grow_bti(bti) if grow_bti is not False else bti
+        et = st
+        st = et - bti
+
+    ### Finally sync rows older than rt1.
+    return pipe.sync(
+        fetch_methods['simple'](begin=rt1, debug=debug),
+        debug = debug,
+    )
+
+
 
 fetch_methods = {
     'naive': _naive_fetch,
@@ -196,5 +259,5 @@ fetch_methods = {
     'join-new-ids': _join_fetch,
 }
 sync_methods = {
-    'iterative-simple-sync': _iterative_simple_sync,
+    'iterative-simple': _iterative_simple_sync,
 }

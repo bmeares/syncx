@@ -88,14 +88,14 @@ def scenarios(
             combo_name = scenario_name + '_' + sm
             averages_dfs = []
             for i in range(ITERATIONS_PER_SCENARIO_FM):
-                info(f"Iteration #{i + 1} for scenario '{scenario_name}' with fetch method '{_fetch_method}'.")
+                info(f"Iteration #{i + 1} for scenario '{scenario_name}' with sync method '{sm}'.")
                 runtimes_data, error = _scenarios[scenario_name].start(sm, debug=debug)
                 errors_data.append(ErrorRow(scenario_name, sm, error))
                 runtimes_df = pd.DataFrame(runtimes_data)
                 averages_dfs.append(
                     duckdb.query(
                         f"""
-                        SELECT DATE_TRUNC('month', Datetime) AS 'Month', AVG(Runtime) AS '{_fetch_method}'
+                        SELECT DATE_TRUNC('month', Datetime) AS 'Month', AVG(Runtime) AS '{sm}'
                         FROM runtimes_df
                         GROUP BY DATE_TRUNC('month', Datetime)
                         """
