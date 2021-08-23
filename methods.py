@@ -19,6 +19,9 @@ from meerschaum.connectors.sql._tools import sql_item_name, table_exists, datead
 #######################################
 
 def _naive_fetch(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
+    """
+    Return the entire source table.
+    """
     return pipe.connector.read(pipe.parameters['fetch']['definition'], debug=debug)
 
 def _simple_fetch(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
@@ -189,6 +192,16 @@ def _default_grow_bti(bti: datetime.timedelta) -> datetime.timedelta:
     """
     return max(DEFAULT_GROW_BTI_FACTOR * bti, DEFAULT_GROW_BTI_MAX)
 
+def _naive_sync(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
+    """
+    Drop the pipe and completely resync each time.
+    """
+    pipe.drop(debug=debug)
+    return pipe.sync(
+        _naive_fetch(pipe, debug=debug, **kw),
+        debug = debug,
+    )
+
 def _iterative_simple_sync(
         pipe: Pipe,
         bti: Optional[datetime.timedelta] = None,
@@ -213,6 +226,8 @@ def _iterative_simple_sync(
     """
 
     rt0 = pipe.get_sync_time(newest=True, debug=debug)
+    if rt0 is None:
+        return _naive_sync(pipe, debug=debug)
     rt1 = pipe.get_sync_time(newest=False, debug=debug)
     if bti is None:
         bti = datetime.timedelta(hours=1)
@@ -222,7 +237,7 @@ def _iterative_simple_sync(
 
     ### First sync rows newer than rt0.
     pipe.sync(
-        fetch_methods['simple'](pipe, begin=rt0, debug=debug),
+        _simple_fetch(pipe, begin=rt0, debug=debug),
         debug = debug,
     )
 
@@ -231,7 +246,7 @@ def _iterative_simple_sync(
     while st > rt1:
         ### Perform a simple sync over the interval from st to et.
         pipe.sync(
-            fetch_methods['simple'](pipe, begin=st, end=et, debug=debug),
+            _simple_fetch(pipe, begin=st, end=et, debug=debug),
             debug = debug,
         )
 
@@ -242,14 +257,41 @@ def _iterative_simple_sync(
 
     ### Finally sync rows older than rt1.
     return pipe.sync(
-        fetch_methods['simple'](pipe, end=rt1, debug=debug),
+        _simple_fetch(pipe, end=rt1, debug=debug),
         debug = debug,
     )
+
+_simple_monthly_flush_last_sync_time = None
+def _simple_monthly_flush_sync(
+        pipe: Pipe,
+        debug: bool = False,
+        **kw,
+    ) -> SuccessTuple:
+    """
+    Perform a simple sync but flush the pipe (naive sync) at the beginning of every month.
+    """
+    from .scenarios import get_last_month
+    global _simple_monthly_flush_last_sync_time
+    if _simple_monthly_flush_last_sync_time is None:
+        naive_success_tuple = _naive_sync(pipe, debug=debug)
+        _simple_monthly_flush_last_sync_time = pipe.get_sync_time(debug=debug)
+        return naive_success_tuple
+
+    _sync_time = pipe.get_sync_time(debug=debug)
+    success_tuple = (
+        _naive_sync(pipe, debug=debug) if (
+            _sync_time.month != _simple_monthly_flush_last_sync_time.month
+        ) else pipe.sync(_simple_fetch(pipe, debug=debug), debug=debug)
+
+    )
+    _simple_monthly_flush_last_sync_time = _sync_time
+    return success_tuple
+
 
 
 
 fetch_methods = {
-    'naive': _naive_fetch,
+    #  'naive': _naive_fetch,
     'simple': _simple_fetch,
     'simple-backtrack': _simple_backtrack_fetch,
     'simple-slow-id': _simple_slow_id_fetch,
@@ -259,5 +301,7 @@ fetch_methods = {
     'join-new-ids': _join_fetch,
 }
 sync_methods = {
+    'naive': _naive_sync,
     'iterative-simple': _iterative_simple_sync,
+    'simple-monthly-flush': _simple_monthly_flush_sync,
 }

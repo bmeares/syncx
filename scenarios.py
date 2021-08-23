@@ -27,7 +27,7 @@ SIMULATION_STEPSIZE = datetime.timedelta(days=1)
 BACKLOG_PROBABILITY_MIN = 1
 BACKLOG_PROBABILITY_MAX = 100
 BACKLOG_PROBABILITY_THRESHOLD = 2
-ITERATIONS_PER_SCENARIO_FM = 10
+ITERATIONS_PER_SCENARIO_FM = 1
 
 
 @dataclass
@@ -174,7 +174,7 @@ class Scenario:
         now: datetime.datetime,
         time_step_interval: datetime.timedelta,
         debug: bool=False,
-    ) -> None:
+    ) -> List[Row]:
         """
         Advance the simulation of the source table by `time_step_interval`.
         Depending on the properties of the scenario, some rows may be backlogged.
@@ -196,13 +196,14 @@ class Scenario:
 
         df = pd.DataFrame(data)
         self.source_connector.to_sql(df, name=self.name, if_exists='append', debug=debug)
+        return data
 
     def backlog_source_table(
         self,
         now: datetime.datetime,
         time_step_interval: datetime.timedelta,
         debug: bool = False,
-    ) -> None:
+    ) -> List[Row]:
         """
         Insert backlogged records into the source table.
         """
@@ -243,10 +244,11 @@ class Scenario:
             random.randint(0, records_ceiling - 1) if self.max_backlog_seconds is None
             else expired_i
         )
-        df = pd.DataFrame(self.outages[:rows_to_add_index + 1])
+        data = self.outages[:rows_to_add_index + 1]
+        df = pd.DataFrame(data)
         self.outages = self.outages[rows_to_add_index + 1:]
         self.source_connector.to_sql(df, name=self.name, if_exists='append', debug=debug)
-
+        return data
 
     def calcuate_error(self, debug: bool = False) -> int:
         """
@@ -295,8 +297,10 @@ class Scenario:
                     + f" for scenario '{self.name}' with sync method '{sync_method}'..."
                 )
 
-            self.advance_source_table(now, SIMULATION_STEPSIZE, debug=debug)
-            self.backlog_source_table(now, SIMULATION_STEPSIZE, debug=debug)
+            new_source_rows = (
+                self.advance_source_table(now, SIMULATION_STEPSIZE, debug=debug) +
+                self.backlog_source_table(now, SIMULATION_STEPSIZE, debug=debug)
+            )
             
             _start_sync_runtime = time.time()
             self.sync_target_table(
