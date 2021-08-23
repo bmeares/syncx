@@ -8,14 +8,25 @@ Simulate the various scenarios described in Chapter 2 of the thesis.
 
 from __future__ import annotations
 from dataclasses import dataclass
-from meerschaum.utils.typing import Dict, SuccessTuple
+from meerschaum.utils.typing import Dict, SuccessTuple, List, Optional
 from meerschaum.connectors.sql import SQLConnector
 from meerschaum.utils.debug import dprint
 from meerschaum.utils.warnings import info
 import datetime, random
+from collections import namedtuple
+
+Row = namedtuple('Row', ('datetime', 'id', 'value'))
+Row_dtypes = {
+    'datetime': 'datetime64[ns]',
+    'id': int,
+    'value': float,
+}
 
 SIMULATION_INTERVAL = datetime.timedelta(days=365)
 SIMULATION_STEPSIZE = datetime.timedelta(days=1)
+BACKLOG_PROBABILITY_MIN = 1
+BACKLOG_PROBABILITY_MAX = 100
+BACKLOG_PROBABILITY_THRESHOLD = 2
 
 
 @dataclass
@@ -30,7 +41,7 @@ class Scenario:
     name: str
 
     ### The interval between rows in seconds, e.g. 60 -> 1 row per minute
-    frequency_seconds: int = 60
+    frequency_seconds: int = 3600
 
     ### How many sub-streams within the pipe.
     num_ids: int = 1
@@ -44,10 +55,6 @@ class Scenario:
     ### The maximum number of seconds rows may be backlogged into the table.
     ### 0 means no backlogging, and `None` means unbounded (any datetime).
     max_backlog_seconds: int = 0
-
-    ### If 'sql', use complex SQL queries.
-    ### Else use simple bounded queries.
-    protocol: str = 'sql'
 
     @property 
     def pipe(self):
@@ -71,6 +78,27 @@ class Scenario:
 
         return self._pipe
 
+    @property
+    def outages(self) -> List[Row]:
+        """
+        List of generated records skipped due to an 'outage'.
+        """
+        if '_outages' not in self.__dict__:
+            self._outages = []
+        return self._outages
+
+    @outages.setter
+    def outages(self, _outages) -> None:
+        self._outages = _outages
+
+    def is_outage(self):
+        if self.max_backlog_seconds == 0:
+            return False
+        return random.randint(
+            BACKLOG_PROBABILITY_MIN,
+            BACKLOG_PROBABILITY_MAX
+        ) <= BACKLOG_PROBABILITY_THRESHOLD
+
     def init_source_table(
         self,
         now: datetime.datetime,
@@ -87,11 +115,6 @@ class Scenario:
             'id': [],
             'value': [],
         }
-        dtypes = {
-            'datetime': 'datetime64[ns]',
-            'id': int,
-            'value': float,
-        }
 
         next_id = 1
         for _id_rownum in range(self.initial_rowcount):
@@ -104,7 +127,7 @@ class Scenario:
             next_id = max((next_id + 1) % (self.num_ids + 1), 1)
 
         for col in data:
-            data[col] = pd.Series(data[col], dtype=dtypes[col])
+            data[col] = pd.Series(data[col], dtype=Row_dtypes[col])
 
         df = pd.DataFrame(data)
         self.source_connector.to_sql(df, name=self.name, if_exists='replace', debug=debug)
@@ -156,36 +179,96 @@ class Scenario:
         from meerschaum.utils.packages import import_pandas
         pd = import_pandas()
         elapsed_seconds = time_step_interval.total_seconds()
-        data = {
-            'datetime': [],
-            'id': [],
-            'value': [],
-        }
+
+        data: List[Row] = []
 
         for i in range(int(elapsed_seconds / self.frequency_seconds)):
             for _id in range(1, self.num_ids + 1):
-                data['datetime'].append(now)
-                data['id'].append(_id)
-                data['value'].append(get_value())
+                row = Row(now, _id, get_value())
+                if self.is_outage():
+                    self.outages.append(row)
+                    continue
+                data.append(row)
             now = now + datetime.timedelta(seconds=self.frequency_seconds)
 
         df = pd.DataFrame(data)
         self.source_connector.to_sql(df, name=self.name, if_exists='append', debug=debug)
+
+    def backlog_source_table(
+        self,
+        now: datetime.datetime,
+        time_step_interval: datetime.timedelta,
+        debug: bool = False,
+    ) -> None:
+        """
+        Insert backlogged records into the source table.
+        """
+        from meerschaum.utils.packages import import_pandas
+        pd = import_pandas()
+
+        records_ceiling = None
+        expired_i = None
+        st, et = now, now + time_step_interval
+        for i, row in enumerate(self.outages):
+            elapsed_seconds = (row.datetime - st).total_seconds()
+            if elapsed_seconds > 0:
+                records_ceiling = i
+                break
+
+            next_elapsed_seconds = (et - row.datetime).total_seconds()
+            if (
+                self.max_backlog_seconds is not None
+                and next_elapsed_seconds > self.max_backlog_seconds
+            ):
+                expired_i = i
+
+        ### No records are old enough to be backlogged.
+        if (
+            not self.outages
+            or records_ceiling == 0
+            or (
+                self.max_backlog_seconds is not None
+                and expired_i is None
+            )
+        ):
+            return
+
+        ### If backlogging is unbounded, randomly choose a subset of the old records.
+        ### Otherwise, only choose records that will 'expire' by the next iteration.
+        rows_to_add_index = (
+            random.randint(0, records_ceiling - 1) if self.max_backlog_seconds is None
+            else expired_i
+        )
+        df = pd.DataFrame(self.outages[:rows_to_add_index + 1])
+        self.outages = self.outages[rows_to_add_index + 1:]
+        self.source_connector.to_sql(df, name=self.name, if_exists='append', debug=debug)
+
+
+    def calcuate_error(self, debug: bool = False) -> int:
+        """
+        After synchronization, count the number of missing rows between
+        the source and target tables.
+        """
+        from meerschaum.utils.misc import filter_unseen_df
+        chunksize = 10000
+        source_df = self.source_connector.read(self.name, chunksize=chunksize, debug=debug)
+        target_df = self.pipe.get_data(chunksize=chunksize, debug=debug)
+        return len(filter_unseen_df(source_df, target_df, debug=debug))
 
 
     def start(
         self,
         fetch_method: str,
         debug: bool = False,
-    ) -> SuccessTuple:
+    ) -> Tuple[Dict[str, List[Union[datetime.datetime, float]]], int]:
         """
         Run the simulation for this scenario.
+        Return a tuple of runtimes data dictionary and number of missed rows.
         """
         import time
         from meerschaum import Pipe
         from meerschaum.utils.misc import round_time
 
-        #  now = round_time(datetime.datetime.utcnow(), datetime.timedelta(minutes=15))
         now = datetime.datetime(2021, 1, 1, 0, 0)
 
         ### Create the source table and target pipe.
@@ -203,9 +286,13 @@ class Scenario:
             _lm = get_last_month(now)
             if _lm != last_month:
                 last_month = _lm
-                print("Simulating " + now.strftime('%B %Y') + f" for scenario '{self.name}' with fetch method '{fetch_method}'...")
+                print(
+                    "Simulating " + now.strftime('%B %Y')
+                    + f" for scenario '{self.name}' with fetch method '{fetch_method}'..."
+                )
 
             self.advance_source_table(now, SIMULATION_STEPSIZE, debug=debug)
+            self.backlog_source_table(now, SIMULATION_STEPSIZE, debug=debug)
             
             _start_sync_runtime = time.time()
             self.sync_target_table(
@@ -219,7 +306,11 @@ class Scenario:
 
             now = now + SIMULATION_STEPSIZE
 
-        return runtimes_data
+        print(f"Calculating errors between source and target tables (this might take awhile)...")
+        #  error = self.calcuate_error(debug=debug)
+        error = 0
+
+        return runtimes_data, error
 
 
 
@@ -231,36 +322,47 @@ def init_scenarios(
     Build the scenarios dictionary.
     """
     scenarios_list = [
-        Scenario(source_connector, target_connector, name='single-append-only'),
+        Scenario(
+            source_connector, target_connector,
+            name = 'single-append-only',
+            num_ids = 1,
+            max_backlog_seconds = 0,
+            immutable = True,
+        ),
         Scenario(
             source_connector, target_connector,
             name = 'multiple-append-only',
             num_ids = 3,
+            max_backlog_seconds = 0,
+            immutable = True,
         ),
         Scenario(
             source_connector, target_connector,
             name = 'single-known-backlog',
-            max_backlog_seconds = 3600,
+            ### BTI = 24 hours 
+            max_backlog_seconds = 86400,
+            immutable = True,
         ),
         Scenario(
             source_connector, target_connector,
             name = 'multiple-known-backlog',
             num_ids = 3,
-            max_backlog_seconds = 3600,
+            max_backlog_seconds = 86400,
+            immutable = True,
         ),
         Scenario(
             source_connector, target_connector,
             name = 'unknown-backlog-simple',
             num_ids = 3,
             max_backlog_seconds = None,
-            protocol = 'samples',
+            immutable = True,
         ),
         Scenario(
             source_connector, target_connector,
             name = 'unknown-backlog-sql',
             num_ids = 3,
             max_backlog_seconds = None,
-            protocol = 'sql',
+            immutable = True,
         ),
         Scenario(
             source_connector, target_connector,
@@ -268,7 +370,6 @@ def init_scenarios(
             num_ids = 3,
             immutable = False,
             max_backlog_seconds = None,
-            protocol = 'samples',
         ),
         Scenario(
             source_connector, target_connector,
@@ -276,7 +377,6 @@ def init_scenarios(
             num_ids = 3,
             immutable = False,
             max_backlog_seconds = None,
-            protocol = 'sql',
         ),
     ]
     return {scenario.name: scenario for scenario in scenarios_list}

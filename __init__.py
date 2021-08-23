@@ -12,7 +12,7 @@ from meerschaum.utils.typing import Optional, Any, List, SuccessTuple
 
 __version__ = '0.0.2'
 required = [
-    'numpy', 'prime-sieve', 'dateutil', 'galois', 'matplotlib',
+    'numpy', 'prime-sieve', 'dateutil', 'galois', 'matplotlib', 'duckdb',
 ]
 
 add_plugin_argument(
@@ -47,6 +47,9 @@ def scenarios(
     from .methods import fetch_methods
     from meerschaum.connectors.parse import parse_instance_keys
     from meerschaum.utils.warnings import info
+    from meerschaum.utils.packages import import_pandas
+    import matplotlib.pyplot as plt
+    import duckdb
     source_connector = parse_instance_keys(source)
     target_connector = parse_instance_keys(target)
     _scenarios = init_scenarios(source_connector, target_connector)
@@ -64,11 +67,22 @@ def scenarios(
             return False, usage
     
 
+    pd = import_pandas()
     for _fetch_method in run_fetch_methods:
         info(f"Testing fetch method '{_fetch_method}'...")
 
         for scenario_name in run_scenarios:
-            _scenarios[scenario_name].start(_fetch_method, debug=debug)
+            runtimes_data, errors = _scenarios[scenario_name].start(_fetch_method, debug=debug)
+            runtimes_df = pd.DataFrame(runtimes_data)
+            avg_runtimes_df = duckdb.query(
+                """
+                SELECT DATE_TRUNC('month', Datetime) AS 'Month', AVG(Runtime) AS 'Average Runtime'
+                FROM runtimes_df
+                GROUP BY DATE_TRUNC('month', Datetime)
+                """
+            ).to_df()
+            avg_runtimes_df.plot(x='Month', y='Average Runtime')
+            plt.show()
 
     return True, "Success"
 
