@@ -73,8 +73,10 @@ class Scenario:
                             "SELECT * FROM "
                             + sql_item_name(self.name, self.source_connector.flavor)
                         ),
+                        'connector': str(self.source_connector),
                     },
-                }
+                },
+                instance=self.target_connector,
             )
 
         return self._pipe
@@ -85,7 +87,7 @@ class Scenario:
         List of generated records skipped due to an 'outage'.
         """
         if '_outages' not in self.__dict__:
-            self._outages = []
+            self._outages: List[Row] = []
         return self._outages
 
     @outages.setter
