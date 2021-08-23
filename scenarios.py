@@ -27,6 +27,7 @@ SIMULATION_STEPSIZE = datetime.timedelta(days=1)
 BACKLOG_PROBABILITY_MIN = 1
 BACKLOG_PROBABILITY_MAX = 100
 BACKLOG_PROBABILITY_THRESHOLD = 2
+ITERATIONS_PER_SCENARIO_FM = 10
 
 
 @dataclass
@@ -41,13 +42,13 @@ class Scenario:
     name: str
 
     ### The interval between rows in seconds, e.g. 60 -> 1 row per minute
-    frequency_seconds: int = 3600
+    frequency_seconds: int = 60 * 15
 
     ### How many sub-streams within the pipe.
     num_ids: int = 1
 
     ### How many rows the table starts with before synchronization.
-    initial_rowcount = 1000
+    initial_rowcount = 0
 
     ### Toggle mutability.
     immutable: bool = True
@@ -307,8 +308,7 @@ class Scenario:
             now = now + SIMULATION_STEPSIZE
 
         print(f"Calculating errors between source and target tables (this might take awhile)...")
-        #  error = self.calcuate_error(debug=debug)
-        error = 0
+        error = self.calcuate_error(debug=debug)
 
         return runtimes_data, error
 
@@ -321,6 +321,8 @@ def init_scenarios(
     """
     Build the scenarios dictionary.
     """
+    small_n = 3
+    large_n = 99
     scenarios_list = [
         Scenario(
             source_connector, target_connector,
@@ -331,53 +333,68 @@ def init_scenarios(
         ),
         Scenario(
             source_connector, target_connector,
-            name = 'multiple-append-only',
-            num_ids = 3,
+            name = 'multiple-small-n-append-only',
+            num_ids = small_n,
+            max_backlog_seconds = 0,
+            immutable = True,
+        ),
+        Scenario(
+            source_connector, target_connector,
+            name = 'multiple-large-n-append-only',
+            num_ids = large_n,
             max_backlog_seconds = 0,
             immutable = True,
         ),
         Scenario(
             source_connector, target_connector,
             name = 'single-known-backlog',
+            num_ids = 1,
             ### BTI = 24 hours 
             max_backlog_seconds = 86400,
             immutable = True,
         ),
         Scenario(
             source_connector, target_connector,
-            name = 'multiple-known-backlog',
-            num_ids = 3,
+            name = 'multiple-small-n-known-backlog',
+            num_ids = small_n,
+            max_backlog_seconds = 86400,
+            immutable = True,
+        ),
+        Scenario(
+            source_connector, target_connector,
+            name = 'multiple-large-n-known-backlog',
+            num_ids = large_n,
             max_backlog_seconds = 86400,
             immutable = True,
         ),
         Scenario(
             source_connector, target_connector,
             name = 'unknown-backlog-simple',
-            num_ids = 3,
+            num_ids = small_n,
             max_backlog_seconds = None,
             immutable = True,
         ),
-        Scenario(
-            source_connector, target_connector,
-            name = 'unknown-backlog-sql',
-            num_ids = 3,
-            max_backlog_seconds = None,
-            immutable = True,
-        ),
-        Scenario(
-            source_connector, target_connector,
-            name = 'mutable-samples',
-            num_ids = 3,
-            immutable = False,
-            max_backlog_seconds = None,
-        ),
-        Scenario(
-            source_connector, target_connector,
-            name = 'mutable-hashing',
-            num_ids = 3,
-            immutable = False,
-            max_backlog_seconds = None,
-        ),
+        #  Scenario(
+            #  source_connector, target_connector,
+            #  name = 'unknown-backlog-sql',
+            #  num_ids = small_n,
+            #  max_backlog_seconds = None,
+            #  immutable = True,
+        #  ),
+        #  Scenario(
+            #  source_connector, target_connector,
+            #  name = 'mutable-samples',
+            #  num_ids = small_n,
+            #  immutable = False,
+            #  max_backlog_seconds = None,
+        #  ),
+        #  Scenario(
+            #  source_connector, target_connector,
+            #  name = 'mutable-hashing',
+            #  num_ids = small_n,
+            #  immutable = False,
+            #  max_backlog_seconds = None,
+        #  ),
     ]
     return {scenario.name: scenario for scenario in scenarios_list}
 

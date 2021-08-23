@@ -19,18 +19,27 @@ def _simple_fetch(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
 def _simple_backtrack_fetch(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
     return pipe.fetch(debug=debug, **kw)
 
-def _simple_slow_id_fetch(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
+def _simple_slow_id_fetch(
+        pipe,
+        debug: bool=False,
+        **kw
+    ) -> Union['pd.DataFrame', None]:
+    """
+    Fetch data newer than the slowest ID's datetime value.
+    """
     pipe_name = sql_item_name(str(pipe), pipe.connector.flavor)
+    dt_name = sql_item_name(pipe.columns.get('datetime'), pipe.connector.flavor)
     slow_id_st_query = f"""
     WITH sync_times AS (
-        SELECT id, MAX(dt) AS sync_time
+        SELECT id, MAX({dt_name}) AS sync_time
         FROM {pipe_name}
         GROUP BY id
     ) SELECT MIN(sync_time) AS st
     FROM sync_times
     """
     st = pipe.connector.value(slow_id_st_query)
-    return pipe.fetch(begin=st, **kw)
+    kw['begin'] = (st if kw.get('begin', None) is None else kw.get('begin'))
+    return pipe.fetch(**kw)
 
 def _append_fetch(
         pipe,
@@ -38,6 +47,9 @@ def _append_fetch(
         new_ids: bool = False,
         **kw
     ) -> Union['pd.DataFrame', None]:
+    """
+    Append together individual simple syncs per ID via UNION ALL.
+    """
     pipe_name = sql_item_name(str(pipe), pipe.connector.flavor)
     id_name = sql_item_name(pipe.columns['id'], pipe.connector.flavor)
     dt_name = sql_item_name(pipe.columns['datetime'], pipe.connector.flavor)
@@ -47,9 +59,10 @@ def _append_fetch(
     FROM {pipe_name}
     GROUP BY {id_name}
     """
-    sync_times = pipe.connector.read(sync_times_query, debug=debug)
-
     definition = pipe.parameters['fetch']['definition']
+    sync_times = pipe.connector.read(sync_times_query, debug=debug)
+    if len(sync_times) == 0:
+        return _naive_fetch(pipe, debug=debug, **kw)
 
     query = f"WITH definition AS ({definition})\n"
     for _id, _st in sync_times.itertuples(index=False):
@@ -57,10 +70,10 @@ def _append_fetch(
             "SELECT * FROM definition "
             + f"WHERE {id_name} = CAST('{_id}' AS {cols_types[pipe.columns['id']]})\n"
             + f"  AND {dt_name} > " + dateadd_str(
-                flavor=pipe.connector.flavor,
-                datepart='minute',
-                number=pipe.parameters.get('backtrack_minutes', 0),
-                begin=_st
+                flavor = pipe.connector.flavor,
+                datepart = 'minute',
+                number = pipe.parameters.get('backtrack_minutes', 0),
+                begin = _st
             ) + "\n"
             + "UNION ALL\n"
         )

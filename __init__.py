@@ -9,8 +9,10 @@ from __future__ import annotations
 from meerschaum import Pipe
 from meerschaum.plugins import add_plugin_argument, make_action
 from meerschaum.utils.typing import Optional, Any, List, SuccessTuple
+from collections import namedtuple
+ErrorRow = namedtuple('ErrorRow', ('scenario', 'method', 'error'))
 
-__version__ = '0.0.2'
+__version__ = '0.0.3'
 required = [
     'numpy', 'prime-sieve', 'dateutil', 'galois', 'matplotlib', 'duckdb',
 ]
@@ -31,6 +33,7 @@ add_plugin_argument(
 add_plugin_argument(
     '--target', help="Connector keys to the target database (e.g. 'sql:main')"
 )
+
 @make_action
 def scenarios(
         action: Optional[List[str]] = None,
@@ -43,11 +46,12 @@ def scenarios(
     """
     Run synchronization scenario simulations.
     """
-    from .scenarios import init_scenarios
+    from .scenarios import init_scenarios, ITERATIONS_PER_SCENARIO_FM
     from .methods import fetch_methods
     from meerschaum.connectors.parse import parse_instance_keys
     from meerschaum.utils.warnings import info
     from meerschaum.utils.packages import import_pandas
+    from meerschaum.config._paths import PLUGINS_RESOURCES_PATH
     import matplotlib.pyplot as plt
     import duckdb
     source_connector = parse_instance_keys(source)
@@ -66,23 +70,57 @@ def scenarios(
         if scenario not in _scenarios:
             return False, usage
     
+    plugin_path = PLUGINS_RESOURCES_PATH / 'syncx'
+    figures_path = plugin_path / 'figures'
+    csv_path = plugin_path / 'csv'
+    figures_path.mkdir(parents=True, exist_ok=True)
+    csv_path.mkdir(parents=True, exist_ok=True)
 
+    errors_data = []
+    
     pd = import_pandas()
-    for _fetch_method in run_fetch_methods:
-        info(f"Testing fetch method '{_fetch_method}'...")
+    for scenario_name in run_scenarios:
+        info(f"Testing scenario '{scenario_name}'...")
 
-        for scenario_name in run_scenarios:
-            runtimes_data, errors = _scenarios[scenario_name].start(_fetch_method, debug=debug)
-            runtimes_df = pd.DataFrame(runtimes_data)
-            avg_runtimes_df = duckdb.query(
-                """
-                SELECT DATE_TRUNC('month', Datetime) AS 'Month', AVG(Runtime) AS 'Average Runtime'
-                FROM runtimes_df
-                GROUP BY DATE_TRUNC('month', Datetime)
-                """
-            ).to_df()
-            avg_runtimes_df.plot(x='Month', y='Average Runtime')
-            plt.show()
+        methods_dfs = []
+        for _fetch_method in run_fetch_methods:
+            info(f"Testing fetch method '{_fetch_method}'...")
+            combo_name = scenario_name + '_' + _fetch_method
+            averages_dfs = []
+            for i in range(ITERATIONS_PER_SCENARIO_FM):
+                info(f"Iteration #{i + 1} for scenario '{scenario_name}' with fetch method '{_fetch_method}'.")
+                runtimes_data, error = _scenarios[scenario_name].start(_fetch_method, debug=debug)
+                errors_data.append(ErrorRow(scenario_name, _fetch_method, error))
+                runtimes_df = pd.DataFrame(runtimes_data)
+                averages_dfs.append(
+                    duckdb.query(
+                        f"""
+                        SELECT DATE_TRUNC('month', Datetime) AS 'Month', AVG(Runtime) AS '{_fetch_method}'
+                        FROM runtimes_df
+                        GROUP BY DATE_TRUNC('month', Datetime)
+                        """
+                    ).to_df()
+                )
+            methods_dfs.append(pd.concat(averages_dfs).groupby(by='Month', as_index=False).mean())
+
+        ### We've tested all of the fetch methods for this scenario
+        ### and now have a list of the average dataframes.
+        figure_df = methods_dfs[0]
+        for _df in methods_dfs[1:]:
+            figure_df = figure_df.merge(_df)
+
+        max_rt = max(figure_df[run_fetch_methods].max())
+
+        ### Create one figure per scenario with all of the methods.
+        ax = figure_df.plot(x='Month')
+        ax.set_ylim([0.0, max_rt + 0.05])
+        ax.set_title(f"Average Runtimes of Scenario '{scenario_name}'")
+        figure_df.to_csv(csv_path / (scenario_name + '.csv'))
+        plt.savefig(figures_path / (scenario_name + '.png'), bbox_inches="tight")
+
+    ### Finally, save the combinations of errors per scenario and method.
+    errors_df = pd.DataFrame(errors_data).set_index('scenario')
+    errors_df.to_csv(csv_path / 'errors.csv')
 
     return True, "Success"
 
