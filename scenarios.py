@@ -26,7 +26,7 @@ SIMULATION_INTERVAL = datetime.timedelta(days=365)
 SIMULATION_STEPSIZE = datetime.timedelta(days=1)
 BACKLOG_PROBABILITY_MIN = 1
 BACKLOG_PROBABILITY_MAX = 100
-BACKLOG_PROBABILITY_THRESHOLD = 2
+BACKLOG_PROBABILITY_THRESHOLD = 25
 ITERATIONS_PER_SCENARIO_FM = 1
 
 
@@ -42,7 +42,7 @@ class Scenario:
     name: str
 
     ### The interval between rows in seconds, e.g. 60 -> 1 row per minute
-    frequency_seconds: int = 60 * 15
+    frequency_seconds: int = 60 * 60
 
     ### How many sub-streams within the pipe.
     num_ids: int = 1
@@ -163,18 +163,20 @@ class Scenario:
     def sync_target_table(
         self,
         **kw
-    ) -> SuccessTuple:
+    ) -> 'pd.DataFrame':
         """
         Execute `pipe.sync()` for the target table.
         """
-        return self.pipe.sync(deactivate_plugin_venv=False, **kw)
+        kw['deactivate_plugin_venv'] = False
+        kw['with_new_df'] = True
+        return self.pipe.sync(**kw)[1]
 
     def advance_source_table(
         self,
         now: datetime.datetime,
         time_step_interval: datetime.timedelta,
         debug: bool=False,
-    ) -> List[Row]:
+    ) -> 'pd.DataFrame':
         """
         Advance the simulation of the source table by `time_step_interval`.
         Depending on the properties of the scenario, some rows may be backlogged.
@@ -196,14 +198,14 @@ class Scenario:
 
         df = pd.DataFrame(data)
         self.source_connector.to_sql(df, name=self.name, if_exists='append', debug=debug)
-        return data
+        return df
 
     def backlog_source_table(
         self,
         now: datetime.datetime,
         time_step_interval: datetime.timedelta,
         debug: bool = False,
-    ) -> List[Row]:
+    ) -> 'pd.DataFrame':
         """
         Insert backlogged records into the source table.
         """
@@ -236,7 +238,7 @@ class Scenario:
                 and expired_i is None
             )
         ):
-            return
+            return pd.DataFrame(columns=Row_dtypes.keys()).astype(Row_dtypes)
 
         ### If backlogging is unbounded, randomly choose a subset of the old records.
         ### Otherwise, only choose records that will 'expire' by the next iteration.
@@ -248,19 +250,31 @@ class Scenario:
         df = pd.DataFrame(data)
         self.outages = self.outages[rows_to_add_index + 1:]
         self.source_connector.to_sql(df, name=self.name, if_exists='append', debug=debug)
-        return data
+        return df
 
-    def calcuate_error(self, debug: bool = False) -> int:
+    def calculate_error(
+        self,
+        source_df: Optional['pd.DataFrame'] = None,
+        target_df: Optional['pd.DataFrame'] = None,
+        debug: bool = False
+    ) -> 'pd.DataFrame':
         """
         After synchronization, count the number of missing rows between
         the source and target tables.
         """
+        from meerschaum.utils.packages import import_pandas
+        pd = import_pandas()
         from meerschaum.utils.misc import filter_unseen_df
         chunksize = 10000
-        source_df = self.source_connector.read(self.name, chunksize=chunksize, debug=debug)
-        target_df = self.pipe.get_data(chunksize=chunksize, debug=debug)
-        return len(filter_unseen_df(source_df, target_df, debug=debug))
+        if source_df is None:
+            source_df = self.source_connector.read(self.name, chunksize=chunksize, debug=debug)
+        if target_df is None:
+            target_df = self.pipe.get_data(chunksize=chunksize, debug=debug)
 
+        diff = filter_unseen_df(target_df, source_df, debug=debug)
+        self.missed = pd.concat([self.missed, diff]) if 'missed' in self.__dict__ else diff
+        total_error_df = filter_unseen_df(self.pipe.get_data(chunksize=chunksize, debug=debug), self.missed)
+        return total_error_df
 
     def start(
         self,
@@ -274,6 +288,8 @@ class Scenario:
         import time
         from meerschaum import Pipe
         from meerschaum.utils.misc import round_time
+        from meerschaum.utils.packages import import_pandas
+        pd = import_pandas()
 
         now = datetime.datetime(2021, 1, 1, 0, 0)
 
@@ -286,6 +302,8 @@ class Scenario:
 
         runtimes_data = {'Datetime': [], 'Runtime': []}
         monthly_runtimes_data = {'Month': [], 'Runtime': []}
+        errors_data = {'Datetime': [], 'Errors': []}
+        monthly_errors_data = {'Month': [], 'Errors': []}
 
         last_month = None
         while now < end_time:
@@ -297,13 +315,13 @@ class Scenario:
                     + f" for scenario '{self.name}' with sync method '{sync_method}'..."
                 )
 
-            new_source_rows = (
-                self.advance_source_table(now, SIMULATION_STEPSIZE, debug=debug) +
+            new_source_df = pd.concat([
+                self.advance_source_table(now, SIMULATION_STEPSIZE, debug=debug),
                 self.backlog_source_table(now, SIMULATION_STEPSIZE, debug=debug)
-            )
+            ])
             
             _start_sync_runtime = time.time()
-            self.sync_target_table(
+            new_target_df = self.sync_target_table(
                 sync_method = sync_method,
                 ### Skip BTI if `append-only`.
                 check_existing = ('append-only' not in self.name),
@@ -311,13 +329,17 @@ class Scenario:
             )
             runtimes_data['Datetime'].append(now)
             runtimes_data['Runtime'].append(time.time() - _start_sync_runtime)
+            errors_data['Datetime'].append(now)
+            errors_data['Errors'].append(
+                len(self.calculate_error(source_df=new_source_df, target_df=new_target_df, debug=debug))
+            )
 
             now = now + SIMULATION_STEPSIZE
 
-        print(f"Calculating errors between source and target tables (this might take awhile)...")
-        error = self.calcuate_error(debug=debug)
+        #  print(f"Calculating errors between source and target tables (this might take awhile)...")
+        #  error = self.calculate_error(debug=debug)
 
-        return runtimes_data, error
+        return runtimes_data, errors_data
 
 
 
@@ -376,7 +398,7 @@ def init_scenarios(
         ),
         Scenario(
             source_connector, target_connector,
-            name = 'unknown-backlog-simple',
+            name = 'unknown-backlog',
             num_ids = small_n,
             max_backlog_seconds = None,
             immutable = True,

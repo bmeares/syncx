@@ -82,16 +82,19 @@ def scenarios(
     for scenario_name in run_scenarios:
         info(f"Testing scenario '{scenario_name}'...")
 
-        methods_dfs = []
+        rt_methods_dfs = []
+        er_methods_dfs = []
         for sm in run_sync_methods:
             info(f"Testing sync method '{sm}'...")
             combo_name = scenario_name + '_' + sm
             averages_dfs = []
+            errors_dfs = []
             for i in range(ITERATIONS_PER_SCENARIO_FM):
                 info(f"Iteration #{i + 1} for scenario '{scenario_name}' with sync method '{sm}'.")
-                runtimes_data, error = _scenarios[scenario_name].start(sm, debug=debug)
-                errors_data.append(ErrorRow(scenario_name, sm, error))
+                runtimes_data, errors_data = _scenarios[scenario_name].start(sm, debug=debug)
+                #  errors_data.append(ErrorRow(scenario_name, sm, error))
                 runtimes_df = pd.DataFrame(runtimes_data)
+                errors_df = pd.DataFrame(errors_data)
                 averages_dfs.append(
                     duckdb.query(
                         f"""
@@ -101,26 +104,50 @@ def scenarios(
                         """
                     ).to_df()
                 )
-            methods_dfs.append(pd.concat(averages_dfs).groupby(by='Month', as_index=False).mean())
+                #  maxs_dfs.append(
+                    #  duckdb.query(
+                        #  f"""
+                        #  SELECT DATE_TRUNC('month', Datetime) AS 'Month', MAX(Errors) AS '{sm}'
+                        #  FROM errors_df
+                        #  GROUP BY DATE_TRUNC('month', Datetime)
+                        #  """
+                    #  ).to_df()
+                #  )
+                errors_dfs.append(errors_df)
+
+            rt_methods_dfs.append(pd.concat(averages_dfs).groupby(by='Month', as_index=False).mean())
+            er_methods_dfs.append(pd.concat(errors_dfs).groupby(by='Datetime', as_index=False).mean())
 
         ### We've tested all of the fetch methods for this scenario
         ### and now have a list of the average dataframes.
-        figure_df = methods_dfs[0]
-        for _df in methods_dfs[1:]:
-            figure_df = figure_df.merge(_df)
+        rt_figure_df = rt_methods_dfs[0]
+        for _df in rt_methods_dfs[1:]:
+            rt_figure_df = rt_figure_df.merge(_df)
 
-        max_rt = max(figure_df[run_sync_methods].max())
+        er_figure_df = er_methods_dfs[0]
+        for _df in er_methods_dfs[1:]:
+            er_figure_df = er_figure_df.merge(_df)
+
+        max_rt = max(rt_figure_df[run_sync_methods].max())
+        max_er = max(er_figure_df[run_sync_methods].max())
 
         ### Create one figure per scenario with all of the methods.
-        ax = figure_df.plot(x='Month')
-        ax.set_ylim([0.0, max_rt + 0.05])
-        ax.set_title(f"Average Runtimes of Scenario '{scenario_name}'")
-        figure_df.to_csv(csv_path / (scenario_name + '.csv'))
-        plt.savefig(figures_path / (scenario_name + '.png'), bbox_inches="tight")
+        rt_ax = rt_figure_df.plot(x='Month')
+        rt_ax.set_ylim([0.0, max_rt + 0.05])
+        rt_ax.set_title(f"Average Runtimes of Scenario '{scenario_name}'")
+        rt_figure_df.to_csv(csv_path / (scenario_name + '_runtime.csv'))
+        plt.savefig(figures_path / (scenario_name + '_runtime.png'), bbox_inches="tight")
+
+        er_ax = rt_figure_df.plot(x='Month', kind='bar')
+        er_ax.set_ylim([0.0, max_er])
+        er_ax.set_title(f"Total Monthly Errors of Scenario '{scenario_name}'")
+        er_figure_df.to_csv(csv_path / (scenario_name + '_errors.csv'))
+        plt.savefig(figures_path / (scenario_name + '_errors.png'), bbox_inches="tight")
+
 
     ### Finally, save the combinations of errors per scenario and method.
-    errors_df = pd.DataFrame(errors_data).set_index('scenario')
-    errors_df.to_csv(csv_path / 'errors.csv')
+    #  errors_df = pd.DataFrame(errors_data).set_index('scenario')
+    #  errors_df.to_csv(csv_path / 'errors.csv')
 
     return True, "Success"
 
@@ -128,6 +155,7 @@ def sync(
         pipe: Pipe,
         sync_method: str = 'join-new-ids',
         backtrack_minutes: Optional[int] = None,
+        with_new_df: bool = False,
         debug: bool = False,
         **kw
     ) -> SuccessTuple:
@@ -186,7 +214,9 @@ def sync(
     ### If not optimizations may be made, perform a naive sync.
     if not pipe.exists(debug=debug):
         return pipe.sync(
-            fetch_methods['naive'](_pipe, debug=debug)
+            fetch_methods['naive'](_pipe, debug=debug),
+            with_new_df = with_new_df,
+            debug = debug,
         )
 
     return (
@@ -195,11 +225,16 @@ def sync(
                 _pipe,
                 new_ids = ('new-ids' in sync_method),
                 debug = debug,
-            )
+            ),
+            with_new_df = with_new_df,
+            debug = debug,
+            **kw
         ) if sync_method in fetch_methods
         else sync_methods[sync_method](
             _pipe,
             new_ids = ('new-ids' in sync_method),
+            with_new_df = with_new_df,
             debug = debug,
+            **kw
         )
     )

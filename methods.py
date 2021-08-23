@@ -28,19 +28,25 @@ def _simple_fetch(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
     """
     Fetch data from the source connector. Forces `backtrack_minutes` to be zero.
     """
-    old_btm = pipe.parameters.get('fetch', {}).get('backtrack_minutes', None)
-    pipe.parameters['fetch']['backtrack_minutes'] = 0
-    df = pipe.fetch(debug=debug, **kw)
-    if old_btm is None:
-        del pipe.parameters['fetch']['backtrack_minutes']
+    #  old_btm = pipe.parameters.get('fetch', {}).get('backtrack_minutes', None)
+    #  pipe.parameters['fetch']['backtrack_minutes'] = 0
+    df = pipe.fetch(debug=debug, begin=pipe.get_sync_time(debug=debug), **kw)
+    #  if old_btm is None:
+        #  del pipe.parameters['fetch']['backtrack_minutes']
     return df
 
-def _simple_backtrack_fetch(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
-    return pipe.fetch(debug=debug, **kw)
+def _simple_backtrack_fetch(
+        pipe,
+        bti: Optional[datetime.timedelta] = None,
+        debug: bool = False,
+        **kw
+    ) -> Union['pd.DataFrame', None]:
+    begin = pipe.get_sync_time(debug=debug) - (DEFAULT_BTI_INIT if bti is None else bti)
+    return pipe.fetch(begin=begin, debug=debug, **kw)
 
 def _simple_slow_id_fetch(
         pipe,
-        debug: bool=False,
+        debug: bool = False,
         **kw
     ) -> Union['pd.DataFrame', None]:
     """
@@ -58,11 +64,11 @@ def _simple_slow_id_fetch(
     """
     st = pipe.connector.value(slow_id_st_query)
     kw['begin'] = (st if kw.get('begin', None) is None else kw.get('begin'))
-    return pipe.fetch(**kw)
+    return pipe.fetch(debug=debug, **kw)
 
 def _append_fetch(
         pipe,
-        debug: bool=False,
+        debug: bool = False,
         new_ids: bool = False,
         **kw
     ) -> Union['pd.DataFrame', None]:
@@ -184,6 +190,7 @@ def _join_fetch(
 #                                    #
 ######################################
 
+DEFAULT_BTI_INIT = datetime.timedelta(hours=1)
 DEFAULT_GROW_BTI_MAX = datetime.timedelta(hours=720)
 DEFAULT_GROW_BTI_FACTOR = 1.4
 def _default_grow_bti(bti: datetime.timedelta) -> datetime.timedelta:
@@ -200,6 +207,7 @@ def _naive_sync(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
     return pipe.sync(
         _naive_fetch(pipe, debug=debug, **kw),
         debug = debug,
+        **kw
     )
 
 def _iterative_simple_sync(
@@ -224,31 +232,41 @@ def _iterative_simple_sync(
         If `grow_bti` is False, do not increase `bti`.
         Defaults to a 40% increase with a cap of 720 hours.
     """
+    from meerschaum.utils.packages import import_pandas
+    pd = import_pandas()
 
     rt0 = pipe.get_sync_time(newest=True, debug=debug)
     if rt0 is None:
-        return _naive_sync(pipe, debug=debug)
-    rt1 = pipe.get_sync_time(newest=False, debug=debug)
+        return _naive_sync(pipe, debug=debug, **kw)
+    rt1 = pipe.get_sync_time(newest=False, debug=debug, **kw)
     if bti is None:
-        bti = datetime.timedelta(hours=1)
+        bti = DEFAULT_BTI_INIT
 
     if grow_bti is None:
         grow_bti = _default_grow_bti
 
+    new_dfs = []
+
     ### First sync rows newer than rt0.
-    pipe.sync(
+    result = pipe.sync(
         _simple_fetch(pipe, begin=rt0, debug=debug),
         debug = debug,
+        **kw
     )
+    if kw.get('with_new_df'):
+        new_dfs.append(result[1])
 
     et = rt0
     st = rt0 - bti
     while st > rt1:
         ### Perform a simple sync over the interval from st to et.
-        pipe.sync(
+        result = pipe.sync(
             _simple_fetch(pipe, begin=st, end=et, debug=debug),
             debug = debug,
+            **kw
         )
+        if kw.get('with_new_df'):
+            new_dfs.append(result[1])
 
         ### Move to the next chunk in the past.
         bti = grow_bti(bti) if grow_bti is not False else bti
@@ -256,16 +274,21 @@ def _iterative_simple_sync(
         st = et - bti
 
     ### Finally sync rows older than rt1.
-    return pipe.sync(
+    result = pipe.sync(
         _simple_fetch(pipe, end=rt1, debug=debug),
         debug = debug,
+        **kw
     )
+    if kw.get('with_new_df'):
+        new_dfs.append(result[1])
+        return result[0], pd.concat(new_dfs)
+    return result
 
 _simple_monthly_flush_last_sync_time = None
 def _simple_monthly_flush_sync(
         pipe: Pipe,
         debug: bool = False,
-        **kw,
+        **kw
     ) -> SuccessTuple:
     """
     Perform a simple sync but flush the pipe (naive sync) at the beginning of every month.
@@ -273,19 +296,19 @@ def _simple_monthly_flush_sync(
     from .scenarios import get_last_month
     global _simple_monthly_flush_last_sync_time
     if _simple_monthly_flush_last_sync_time is None:
-        naive_success_tuple = _naive_sync(pipe, debug=debug)
+        naive_success_tuple = _naive_sync(pipe, debug=debug, **kw)
         _simple_monthly_flush_last_sync_time = pipe.get_sync_time(debug=debug)
         return naive_success_tuple
 
     _sync_time = pipe.get_sync_time(debug=debug)
-    success_tuple = (
-        _naive_sync(pipe, debug=debug) if (
+    result = (
+        _naive_sync(pipe, debug=debug, **kw) if (
             _sync_time.month != _simple_monthly_flush_last_sync_time.month
-        ) else pipe.sync(_simple_fetch(pipe, debug=debug), debug=debug)
+        ) else pipe.sync(_simple_fetch(pipe, debug=debug), debug=debug, **kw)
 
     )
     _simple_monthly_flush_last_sync_time = _sync_time
-    return success_tuple
+    return result
 
 
 
