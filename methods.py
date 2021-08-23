@@ -222,7 +222,7 @@ def _iterative_simple_sync(
 
     ### First sync rows newer than rt0.
     pipe.sync(
-        fetch_methods['simple'](begin=rt0, debug=debug),
+        fetch_methods['simple'](pipe, begin=rt0, debug=debug),
         debug = debug,
     )
 
@@ -231,7 +231,7 @@ def _iterative_simple_sync(
     while st > rt1:
         ### Perform a simple sync over the interval from st to et.
         pipe.sync(
-            fetch_methods['simple'](begin=st, end=et, debug=debug),
+            fetch_methods['simple'](pipe, begin=st, end=et, debug=debug),
             debug = debug,
         )
 
@@ -242,7 +242,7 @@ def _iterative_simple_sync(
 
     ### Finally sync rows older than rt1.
     return pipe.sync(
-        fetch_methods['simple'](begin=rt1, debug=debug),
+        fetch_methods['simple'](pipe, end=rt1, debug=debug),
         debug = debug,
     )
 
