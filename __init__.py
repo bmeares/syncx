@@ -113,7 +113,8 @@ def scenarios(
                         #  """
                     #  ).to_df()
                 #  )
-                errors_dfs.append(errors_df)
+                errors_df[sm] = errors_df['Errors']
+                errors_dfs.append(errors_df[['Datetime', sm]])
 
             rt_methods_dfs.append(pd.concat(averages_dfs).groupby(by='Month', as_index=False).mean())
             er_methods_dfs.append(pd.concat(errors_dfs).groupby(by='Datetime', as_index=False).mean())
