@@ -138,7 +138,7 @@ def scenarios(
         rt_figure_df.to_csv(csv_path / (scenario_name + '_runtime.csv'))
         plt.savefig(figures_path / (scenario_name + '_runtime.png'), bbox_inches="tight")
 
-        er_ax = rt_figure_df.plot(x='Month', kind='bar')
+        er_ax = rt_figure_df.plot(x='Datetime', kind='bar')
         er_ax.set_ylim([0.0, max_er])
         er_ax.set_title(f"Total Monthly Errors of Scenario '{scenario_name}'")
         er_figure_df.to_csv(csv_path / (scenario_name + '_errors.csv'))
