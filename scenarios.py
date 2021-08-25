@@ -22,11 +22,12 @@ Row_dtypes = {
     'value': float,
 }
 
+SIMULATION_BEGIN = datetime.datetime(2021, 1, 1, 0, 0)
 SIMULATION_INTERVAL = datetime.timedelta(days=365)
 SIMULATION_STEPSIZE = datetime.timedelta(days=1)
 BACKLOG_PROBABILITY_MIN = 1
 BACKLOG_PROBABILITY_MAX = 100
-BACKLOG_PROBABILITY_THRESHOLD = 2
+BACKLOG_PROBABILITY_THRESHOLD = 1
 ITERATIONS_PER_SCENARIO_FM = 1
 
 
@@ -166,10 +167,12 @@ class Scenario:
     ) -> 'pd.DataFrame':
         """
         Execute `pipe.sync()` for the target table.
+        Return the filtered dataframe and fetched dataframe.
         """
         kw['deactivate_plugin_venv'] = False
-        kw['with_new_df'] = True
-        return self.pipe.sync(**kw)[1]
+        kw['with_extras'] = True
+        result = self.pipe.sync(**kw)
+        return result[1], result[2]
 
     def advance_source_table(
         self,
@@ -265,20 +268,22 @@ class Scenario:
         from meerschaum.utils.packages import import_pandas
         pd = import_pandas()
         from meerschaum.utils.misc import filter_unseen_df
-        chunksize = 10000
+        from .methods import CHUNKSIZE
         if source_df is None:
-            source_df = self.source_connector.read(self.name, chunksize=chunksize, debug=debug)
+            source_df = self.source_connector.read(self.name, chunksize=CHUNKSIZE, debug=debug)
         if target_df is None:
-            target_df = self.pipe.get_data(chunksize=chunksize, debug=debug)
+            target_df = self.pipe.get_data(chunksize=CHUNKSIZE, debug=debug)
 
         diff = filter_unseen_df(target_df, source_df, debug=debug)
         self.missed = pd.concat([self.missed, diff]) if 'missed' in self.__dict__ else diff
-        total_error_df = filter_unseen_df(self.pipe.get_data(chunksize=chunksize, debug=debug), self.missed)
+        total_error_df = filter_unseen_df(self.pipe.get_data(chunksize=CHUNKSIZE, debug=debug), self.missed)
         return total_error_df
 
     def start(
         self,
         sync_method: str,
+        begin: Optional[datetime.datetime] = None,
+        end: Optional[datetime.datetime] = None,
         debug: bool = False,
     ) -> Tuple[Dict[str, List[Union[datetime.datetime, float]]], int]:
         """
@@ -291,19 +296,20 @@ class Scenario:
         from meerschaum.utils.packages import import_pandas
         pd = import_pandas()
 
-        now = datetime.datetime(2021, 1, 1, 0, 0)
+        now = SIMULATION_BEGIN if begin is None else begin
 
         ### Create the source table and target pipe.
         info(f"Initializing {self.initial_rowcount} rows for scenario '{self.name}'...")
         self.init_source_table(now, debug=debug)
         self.init_target_table(now, debug=debug)
 
-        end_time = now + SIMULATION_INTERVAL
+        end_time = end if end is not None else now + SIMULATION_INTERVAL
 
         runtimes_data = {'Datetime': [], 'Runtime': []}
         monthly_runtimes_data = {'Month': [], 'Runtime': []}
         errors_data = {'Datetime': [], 'Errors': []}
-        monthly_errors_data = {'Month': [], 'Errors': []}
+        cumulative_volumes_data = {'Datetime': [], 'Rows': []}
+        daily_volumes_data = {'Datetime': [], 'Rows': []}
 
         last_month = None
         while now < end_time:
@@ -315,31 +321,51 @@ class Scenario:
                     + f" for scenario '{self.name}' with sync method '{sync_method}'..."
                 )
 
+            ### New rows which were added to the source table.
+            ### (We only know these exist because we're in control of the simulation)
             new_source_df = pd.concat([
                 self.advance_source_table(now, SIMULATION_STEPSIZE, debug=debug),
-                self.backlog_source_table(now, SIMULATION_STEPSIZE, debug=debug)
+                self.backlog_source_table(now, SIMULATION_STEPSIZE, debug=debug),
             ])
             
             _start_sync_runtime = time.time()
-            new_target_df = self.sync_target_table(
+
+            ### New rows which were detected and added to the target table.
+            ### Some strategies, such as `simple`, will miss backlogged rows.
+            new_target_df, fetched_source_df = self.sync_target_table(
                 sync_method = sync_method,
                 ### Skip BTI if `append-only`.
                 check_existing = ('append-only' not in self.name),
                 debug = debug
             )
+
+            ### Collect evaluation metrics raw data
             runtimes_data['Datetime'].append(now)
             runtimes_data['Runtime'].append(time.time() - _start_sync_runtime)
             errors_data['Datetime'].append(now)
+            ### Count the differences between the "truth" and "guess" (source and target rows).
             errors_data['Errors'].append(
-                len(self.calculate_error(source_df=new_source_df, target_df=new_target_df, debug=debug))
+                len(self.calculate_error(
+                    source_df = new_source_df,
+                    target_df = new_target_df,
+                    debug = debug
+                ))
             )
+            cumulative_volumes_data['Datetime'].append(now)
+            cumulative_volumes_data['Rows'].append(
+                len(fetched_source_df) if len(cumulative_volumes_data['Rows']) == 0
+                else len(fetched_source_df) + cumulative_volumes_data['Rows'][-1]
+            )
+            daily_volumes_data['Datetime'].append(now)
+            daily_volumes_data['Rows'].append(len(fetched_source_df))
+
 
             now = now + SIMULATION_STEPSIZE
 
         #  print(f"Calculating errors between source and target tables (this might take awhile)...")
         #  error = self.calculate_error(debug=debug)
 
-        return runtimes_data, errors_data
+        return runtimes_data, errors_data, cumulative_volumes_data, daily_volumes_data
 
 
 

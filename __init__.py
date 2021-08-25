@@ -18,8 +18,8 @@ required = [
 ]
 
 add_plugin_argument(
-    '--sync-method', help=(
-        "Type of fetch method to use. Defaults to 'join-new-ids'."
+    '--sync-methods', nargs='+', help=(
+        "Sync methods to use. Defaults to ['join-new-ids']."
     )
 )
 add_plugin_argument(
@@ -33,38 +33,52 @@ add_plugin_argument(
 add_plugin_argument(
     '--target', help="Connector keys to the target database (e.g. 'sql:main')"
 )
-
+add_plugin_argument(
+    '--iterations', help="How many iterations to run per scenario and method (results will be averaged).",
+    type=int,
+)
 @make_action
 def scenarios(
         action: Optional[List[str]] = None,
         source: Optional[str] = 'sql:main',
         target: Optional[str] = 'sql:main',
-        sync_method: Optional[str] = None,
+        sync_methods: Optional[List[str]] = None,
+        begin: Optional[datetime.datetime] = None,
+        end: Optional[datetime.datetime] = None,
+        iterations: Optional[int] = None,
         debug: bool = False,
         **kw
     ) -> SuccessTuple:
     """
     Run synchronization scenario simulations.
     """
-    from .scenarios import init_scenarios, ITERATIONS_PER_SCENARIO_FM
-    from .methods import fetch_methods, sync_methods
+    from .scenarios import (
+        init_scenarios, ITERATIONS_PER_SCENARIO_FM, SIMULATION_BEGIN, SIMULATION_INTERVAL
+    )
+    from .methods import fetch_methods as fetch_methods_dict, sync_methods as sync_methods_dict
     from meerschaum.connectors.parse import parse_instance_keys
     from meerschaum.utils.warnings import info
     from meerschaum.utils.packages import import_pandas
     from meerschaum.config._paths import PLUGINS_RESOURCES_PATH
     import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
     import duckdb
     source_connector = parse_instance_keys(source)
     target_connector = parse_instance_keys(target)
     _scenarios = init_scenarios(source_connector, target_connector)
 
     usage = "Usage: scenarios ['" + "', '".join(_scenarios.keys()) + "']"
+    if (
+        begin is not None and end is not None
+        and begin.month == end.month and begin.year == end.year
+    ):
+        return False, "The interval needs to span across at least two months."
 
     run_scenarios = action
     if not run_scenarios:
         run_scenarios = _scenarios.keys()
 
-    run_sync_methods = [sync_method] if sync_method is not None else list(fetch_methods.keys()) + list(sync_methods.keys())
+    run_sync_methods = sync_methods if sync_methods else list(fetch_methods_dict.keys()) + list(sync_methods_dict.keys())
 
     for scenario in run_scenarios:
         if scenario not in _scenarios:
@@ -76,51 +90,58 @@ def scenarios(
     figures_path.mkdir(parents=True, exist_ok=True)
     csv_path.mkdir(parents=True, exist_ok=True)
 
-    errors_data = []
-    
     pd = import_pandas()
     for scenario_name in run_scenarios:
         info(f"Testing scenario '{scenario_name}'...")
 
-        rt_methods_dfs = []
-        er_methods_dfs = []
+        drt_methods_dfs, rt_methods_dfs, er_methods_dfs, vl_methods_dfs, dvl_methods_dfs = [], [], [], [], []
         for sm in run_sync_methods:
             info(f"Testing sync method '{sm}'...")
             combo_name = scenario_name + '_' + sm
+            runtimes_dfs = []
             averages_dfs = []
             errors_dfs = []
-            for i in range(ITERATIONS_PER_SCENARIO_FM):
+            cumulative_volumes_dfs = []
+            daily_volumes_dfs = []
+            for i in range(ITERATIONS_PER_SCENARIO_FM if iterations is None else iterations):
                 info(f"Iteration #{i + 1} for scenario '{scenario_name}' with sync method '{sm}'.")
-                runtimes_data, errors_data = _scenarios[scenario_name].start(sm, debug=debug)
-                #  errors_data.append(ErrorRow(scenario_name, sm, error))
+                runtimes_data, errors_data, cumulative_volumes_data, daily_volumes_data = (
+                    _scenarios[scenario_name].start(sm, begin=begin, end=end, debug=debug)
+                )
                 runtimes_df = pd.DataFrame(runtimes_data)
                 errors_df = pd.DataFrame(errors_data)
+                cumulative_volumes_df = pd.DataFrame(cumulative_volumes_data)
+                daily_volumes_df = pd.DataFrame(daily_volumes_data)
+                runtimes_df[sm] = runtimes_df['Runtime']
+                runtimes_dfs.append(runtimes_df[['Datetime', sm]])
                 averages_dfs.append(
                     duckdb.query(
                         f"""
-                        SELECT DATE_TRUNC('month', Datetime) AS 'Month', AVG(Runtime) AS '{sm}'
+                        SELECT DATE_TRUNC('month', "Datetime"::DATE) AS 'Month', AVG(Runtime) AS '{sm}'
                         FROM runtimes_df
-                        GROUP BY DATE_TRUNC('month', Datetime)
+                        GROUP BY DATE_TRUNC('month', "Datetime"::DATE)
                         """
                     ).to_df()
                 )
-                #  maxs_dfs.append(
-                    #  duckdb.query(
-                        #  f"""
-                        #  SELECT DATE_TRUNC('month', Datetime) AS 'Month', MAX(Errors) AS '{sm}'
-                        #  FROM errors_df
-                        #  GROUP BY DATE_TRUNC('month', Datetime)
-                        #  """
-                    #  ).to_df()
-                #  )
                 errors_df[sm] = errors_df['Errors']
                 errors_dfs.append(errors_df[['Datetime', sm]])
+                cumulative_volumes_df[sm] = cumulative_volumes_df['Rows']
+                cumulative_volumes_dfs.append(cumulative_volumes_df[['Datetime', sm]])
+                daily_volumes_df[sm] = daily_volumes_df['Rows']
+                daily_volumes_dfs.append(daily_volumes_df[['Datetime', sm]])
 
+            drt_methods_dfs.append(pd.concat(runtimes_dfs).groupby(by='Datetime', as_index=False).mean())
             rt_methods_dfs.append(pd.concat(averages_dfs).groupby(by='Month', as_index=False).mean())
             er_methods_dfs.append(pd.concat(errors_dfs).groupby(by='Datetime', as_index=False).mean())
+            vl_methods_dfs.append(pd.concat(cumulative_volumes_dfs).groupby(by='Datetime', as_index=False).mean())
+            dvl_methods_dfs.append(pd.concat(daily_volumes_dfs).groupby(by='Datetime', as_index=False).mean())
 
         ### We've tested all of the fetch methods for this scenario
         ### and now have a list of the average dataframes.
+        drt_figure_df = drt_methods_dfs[0]
+        for _df in drt_methods_dfs[1:]:
+            drt_figure_df = drt_figure_df.merge(_df)
+
         rt_figure_df = rt_methods_dfs[0]
         for _df in rt_methods_dfs[1:]:
             rt_figure_df = rt_figure_df.merge(_df)
@@ -129,26 +150,61 @@ def scenarios(
         for _df in er_methods_dfs[1:]:
             er_figure_df = er_figure_df.merge(_df)
 
+        vl_figure_df = vl_methods_dfs[0]
+        for _df in vl_methods_dfs[1:]:
+            vl_figure_df = vl_figure_df.merge(_df)
+
+        dvl_figure_df = dvl_methods_dfs[0]
+        for _df in dvl_methods_dfs[1:]:
+            dvl_figure_df = dvl_figure_df.merge(_df)
+
+        max_drt = max(drt_figure_df[run_sync_methods].max())
+        #  min_rt = min(rt_figure_df[run_sync_methods].min())
         max_rt = max(rt_figure_df[run_sync_methods].max())
+        #  min_er = min(er_figure_df[run_sync_methods].min())
         max_er = max(er_figure_df[run_sync_methods].max())
+        #  min_vl = min(vl_figure_df[run_sync_methods].min())
+        max_vl = max(vl_figure_df[run_sync_methods].max())
+        #  min_dvl = min(dvl_figure_df[run_sync_methods].min())
+        max_dvl = max(dvl_figure_df[run_sync_methods].max())
 
         ### Create one figure per scenario with all of the methods.
-        rt_ax = rt_figure_df.plot(x='Month')
-        rt_ax.set_ylim([0.0, max_rt + 0.05])
-        rt_ax.set_title(f"Average Runtimes of Scenario '{scenario_name}'")
-        rt_figure_df.to_csv(csv_path / (scenario_name + '_runtime.csv'))
-        plt.savefig(figures_path / (scenario_name + '_runtime.png'), bbox_inches="tight")
+        drt_ax = drt_figure_df.plot(x='Datetime')
+        drt_ax.set_ylim([0.0, max_drt + 0.1])
+        drt_ax.set_title(f"Daily Runtimes of Scenario '{scenario_name}'")
+        drt_figure_df.to_csv(csv_path / (scenario_name + '_daily_runtime.csv'))
+        plt.savefig(figures_path / (scenario_name + '_daily_runtime.png'), bbox_inches="tight")
 
-        er_ax = er_figure_df.plot(x='Datetime', kind='bar')
-        er_ax.set_ylim([0.0, max_er])
-        er_ax.set_title(f"Total Monthly Errors of Scenario '{scenario_name}'")
+        rt_ax = rt_figure_df.plot(x='Month')
+        rt_ax.set_ylim([0.0, max_rt + 0.1])
+        rt_ax.set_title(f"Monthly Average Runtimes of Scenario '{scenario_name}'")
+        rt_figure_df.to_csv(csv_path / (scenario_name + '_monthly_runtime.csv'))
+        plt.savefig(figures_path / (scenario_name + '_monthly_runtime.png'), bbox_inches="tight")
+
+        er_ax = er_figure_df.plot(x='Datetime', kind='line')
+        er_ax.set_ylim([0.0, max_er + 10])
+        er_ax.xaxis.set_major_locator(mdates.MonthLocator())
+        er_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+        er_ax.set_title(f"Cumulative Errors of Scenario '{scenario_name}'")
         er_figure_df.to_csv(csv_path / (scenario_name + '_errors.csv'))
         plt.savefig(figures_path / (scenario_name + '_errors.png'), bbox_inches="tight")
 
+        vl_ax = vl_figure_df.plot(x='Datetime', kind='line')
+        vl_ax.set_ylim([0, max_vl + 10])
+        vl_ax.xaxis.set_major_locator(mdates.MonthLocator())
+        vl_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+        vl_ax.set_title(f"Cumulative Fetched Row Volume of Scenario '{scenario_name}'")
+        vl_figure_df.to_csv(csv_path / (scenario_name + '_cumulative_volume.csv'))
+        plt.savefig(figures_path / (scenario_name + '_cumulative_volume.png'), bbox_inches="tight")
 
-    ### Finally, save the combinations of errors per scenario and method.
-    #  errors_df = pd.DataFrame(errors_data).set_index('scenario')
-    #  errors_df.to_csv(csv_path / 'errors.csv')
+        dvl_ax = dvl_figure_df.plot(x='Datetime', kind='line')
+        dvl_ax.set_ylim([0, max_dvl + 10])
+        dvl_ax.xaxis.set_major_locator(mdates.MonthLocator())
+        dvl_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+        dvl_ax.set_title(f"Daily Fetched Row Volume of Scenario '{scenario_name}'")
+        dvl_figure_df.to_csv(csv_path / (scenario_name + '_daily_volume.csv'))
+        plt.savefig(figures_path / (scenario_name + '_daily_volume.png'), bbox_inches="tight")
+
 
     return True, "Success"
 
@@ -156,7 +212,7 @@ def sync(
         pipe: Pipe,
         sync_method: str = 'join-new-ids',
         backtrack_minutes: Optional[int] = None,
-        with_new_df: bool = False,
+        with_extras: bool = False,
         debug: bool = False,
         **kw
     ) -> SuccessTuple:
@@ -214,28 +270,23 @@ def sync(
 
     ### If not optimizations may be made, perform a naive sync.
     if not pipe.exists(debug=debug):
-        return pipe.sync(
-            fetch_methods['naive'](_pipe, debug=debug),
-            with_new_df = with_new_df,
-            debug = debug,
-        )
+        return sync_methods['naive'](_pipe, with_extras=with_extras, debug=debug)
 
-    return (
-        pipe.sync(
-            fetch_methods[sync_method](
-                _pipe,
-                new_ids = ('new-ids' in sync_method),
-                debug = debug,
-            ),
-            with_new_df = with_new_df,
-            debug = debug,
-            **kw
-        ) if sync_method in fetch_methods
-        else sync_methods[sync_method](
+    if sync_method in fetch_methods:
+        fetched_df = fetch_methods[sync_method](
             _pipe,
             new_ids = ('new-ids' in sync_method),
-            with_new_df = with_new_df,
-            debug = debug,
-            **kw
+            debug = debug
         )
+        filtered_df = _pipe.filter_existing(fetched_df, debug=debug)
+        success_tuple = _pipe.sync(filtered_df, check_existing=False, debug=debug)
+        if with_extras:
+            return success_tuple, filtered_df, fetched_df
+        return success_tuple
+
+    return sync_methods[sync_method](
+        _pipe,
+        with_extras = with_extras,
+        debug = debug,
+        **kw
     )

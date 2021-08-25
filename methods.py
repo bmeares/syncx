@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import datetime
 from meerschaum import Pipe
-from meerschaum.utils.typing import Any, Union, Optional, SuccessTuple, Callable
+from meerschaum.utils.typing import Any, Union, Optional, SuccessTuple, Callable, Tuple
 from meerschaum.connectors.sql._tools import sql_item_name, table_exists, dateadd_str
+
+CHUNKSIZE = 1000
 
 #######################################
 #                                     #
@@ -28,11 +30,11 @@ def _simple_fetch(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
     """
     Fetch data from the source connector. Forces `backtrack_minutes` to be zero.
     """
-    #  old_btm = pipe.parameters.get('fetch', {}).get('backtrack_minutes', None)
-    #  pipe.parameters['fetch']['backtrack_minutes'] = 0
+    old_btm = pipe.parameters.get('fetch', {}).get('backtrack_minutes', None)
+    pipe.parameters['fetch']['backtrack_minutes'] = 0
     df = pipe.fetch(debug=debug, begin=pipe.get_sync_time(debug=debug), **kw)
-    #  if old_btm is None:
-        #  del pipe.parameters['fetch']['backtrack_minutes']
+    if old_btm is None:
+        del pipe.parameters['fetch']['backtrack_minutes']
     return df
 
 def _simple_backtrack_fetch(
@@ -199,24 +201,36 @@ def _default_grow_bti(bti: datetime.timedelta) -> datetime.timedelta:
     """
     return max(DEFAULT_GROW_BTI_FACTOR * bti, DEFAULT_GROW_BTI_MAX)
 
-def _naive_sync(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
+def _naive_sync(
+        pipe,
+        with_extras: bool = False,
+        debug: bool = False,
+        **kw
+    ):
     """
     Drop the pipe and completely resync each time.
     """
     pipe.drop(debug=debug)
-    return pipe.sync(
-        _naive_fetch(pipe, debug=debug, **kw),
+    fetched_df = _naive_fetch(pipe, debug=debug)
+    filtered_df = pipe.filter_existing(fetched_df, debug=debug)
+    success_tuple = pipe.sync(
+        filtered_df,
+        check_existing = False,
         debug = debug,
         **kw
     )
+    if with_extras:
+        return success_tuple, filtered_df, fetched_df
+    return success_tuple
 
 def _iterative_simple_sync(
         pipe: Pipe,
         bti: Optional[datetime.timedelta] = None,
         grow_bti: Optional[Callable[[datetime.timedelta], datetime.timedelta]] = None,
+        with_extras: bool = False,
         debug: bool = False,
         **kw
-    ) -> SuccessTuple:
+    ):
     """
     Iterate across a pipe's interval and perform a simple sync for each chunk.
 
@@ -224,7 +238,7 @@ def _iterative_simple_sync(
         The pipe to sync.
 
     :param bti:
-        The backtrack interval / chunksize.
+        The backtrack interval (partition size).
         Defaults to 1 hour.
 
     :param grow_bti:
@@ -233,11 +247,17 @@ def _iterative_simple_sync(
         Defaults to a 40% increase with a cap of 720 hours.
     """
     from meerschaum.utils.packages import import_pandas
+    from meerschaum.utils.misc import filter_unseen_df
     pd = import_pandas()
 
     rt0 = pipe.get_sync_time(newest=True, debug=debug)
     if rt0 is None:
-        return _naive_sync(pipe, debug=debug, **kw)
+        return _naive_sync(
+            pipe,
+            with_extras = with_extras,
+            debug = debug,
+            **kw
+        )
     rt1 = pipe.get_sync_time(newest=False, debug=debug, **kw)
     if bti is None:
         bti = DEFAULT_BTI_INIT
@@ -245,28 +265,34 @@ def _iterative_simple_sync(
     if grow_bti is None:
         grow_bti = _default_grow_bti
 
-    new_dfs = []
+    new_dfs, fetched_dfs = [], []
 
     ### First sync rows newer than rt0.
-    result = pipe.sync(
-        _simple_fetch(pipe, begin=rt0, debug=debug),
+    fetched_df = _simple_fetch(pipe, begin=rt0)
+    filtered_df = pipe.filter_existing(fetched_df, chunksize=CHUNKSIZE, debug=debug)
+    success_tuple = pipe.sync(
+        fetched_df,
+        check_existing = False,
+        chunksize = CHUNKSIZE,
         debug = debug,
-        **kw
     )
-    if kw.get('with_new_df'):
-        new_dfs.append(result[1])
+    new_dfs.append(filtered_df)
+    fetched_dfs.append(fetched_df)
 
     et = rt0
     st = rt0 - bti
     while st > rt1:
         ### Perform a simple sync over the interval from st to et.
-        result = pipe.sync(
-            _simple_fetch(pipe, begin=st, end=et, debug=debug),
+        fetched_df = _simple_fetch(pipe, begin=st, end=et)
+        filtered_df = pipe.filter_existing(fetched_df, chunksize=CHUNKSIZE, debug=debug)
+        success_tuple = pipe.sync(
+            fetched_df,
+            check_existing = False,
+            chunksize = CHUNKSIZE,
             debug = debug,
-            **kw
         )
-        if kw.get('with_new_df'):
-            new_dfs.append(result[1])
+        new_dfs.append(filtered_df)
+        fetched_dfs.append(fetched_df)
 
         ### Move to the next chunk in the past.
         bti = grow_bti(bti) if grow_bti is not False else bti
@@ -274,19 +300,23 @@ def _iterative_simple_sync(
         st = et - bti
 
     ### Finally sync rows older than rt1.
-    result = pipe.sync(
+    fetched_df = _simple_fetch(pipe, end=rt1)
+    filtered_df = pipe.filter_existing(fetched_df, chunksize=CHUNKSIZE, debug=debug)
+    success_tuple = pipe.sync(
         _simple_fetch(pipe, end=rt1, debug=debug),
         debug = debug,
         **kw
     )
-    if kw.get('with_new_df'):
-        new_dfs.append(result[1])
-        return result[0], pd.concat(new_dfs)
-    return result
+    new_dfs.append(filtered_df)
+    fetched_dfs.append(fetched_df)
+    if with_extras:
+        return success_tuple, pd.concat(new_dfs), pd.concat(fetched_dfs)
+    return success_tuple
 
 _simple_monthly_flush_last_sync_time = None
 def _simple_monthly_flush_sync(
         pipe: Pipe,
+        with_extras: bool = False,
         debug: bool = False,
         **kw
     ) -> SuccessTuple:
@@ -296,25 +326,96 @@ def _simple_monthly_flush_sync(
     from .scenarios import get_last_month
     global _simple_monthly_flush_last_sync_time
     if _simple_monthly_flush_last_sync_time is None:
-        naive_success_tuple = _naive_sync(pipe, debug=debug, **kw)
+        naive_result = _naive_sync(pipe, with_extras=with_extras, debug=debug)
         _simple_monthly_flush_last_sync_time = pipe.get_sync_time(debug=debug)
-        return naive_success_tuple
+        return naive_result
 
     _sync_time = pipe.get_sync_time(debug=debug)
-    result = (
-        _naive_sync(pipe, debug=debug, **kw) if (
-            _sync_time.month != _simple_monthly_flush_last_sync_time.month
-        ) else pipe.sync(_simple_fetch(pipe, debug=debug), debug=debug, **kw)
+    if _sync_time is None:
+        naive_result = _naive_sync(pipe, with_extras=with_extras, debug=debug)
+        _simple_monthly_flush_last_sync_time = pipe.get_sync_time(debug=debug)
+        return naive_result
+        
+    if _sync_time.month != _simple_monthly_flush_last_sync_time.month:
+        result = _naive_sync(pipe, with_extras=with_extras, debug=debug)
+    else:
+        fetched_df = _simple_fetch(pipe, debug=debug)
+        filtered_df = pipe.filter_existing(fetched_df, debug=debug)
+        success_tuple = pipe.sync(filtered_df, check_existing=False, debug=debug)
+        result = (success_tuple, filtered_df, fetched_df) if with_extras else success_tuple
 
-    )
     _simple_monthly_flush_last_sync_time = _sync_time
     return result
 
+def _rowcount_sync(
+        pipe: Pipe,
+        with_extras: bool = False,
+        debug: bool = False,
+        **kw
+    ) -> Union[SuccessTuple, Tuple[SuccessTuple, 'pd.DataFrame']]:
+    """
+    Count the monthly rowcounts and only sync months with different rowcounts.
+    """
+    from meerschaum.connectors.sql.tools import sql_item_name
+    from meerschaum.utils.misc import filter_unseen_df
+    from meerschaum.utils.packages import import_pandas
+    pd = import_pandas()
+
+    new_dfs = []
+    fetched_dfs = []
+
+    fetched_df = _simple_fetch(pipe, debug=debug)
+    filtered_df = pipe.filter_existing(fetched_df, debug=debug)
+    new_dfs.append(filtered_df)
+    fetched_dfs.append(fetched_df)
+    success_tuple = pipe.sync(
+        filtered_df,
+        check_existing = False,
+        debug = debug,
+    )
+
+    ### NOTE: This will need to be written for different flavors.
+    ### See meerschaum.connectors.sql.tools.dateadd_str() for an example.
+    ### For this experiment, PostgreSQL syntax will work just fine.
+    source_query = f"""
+    WITH definition AS ({pipe.parameters['fetch']['definition']})
+    SELECT
+      DATE_TRUNC('day', {sql_item_name(pipe.columns['datetime'], pipe.connector.flavor)}) AS days,
+      COUNT(*) AS rowcount
+    FROM definition
+    GROUP BY days
+    """
+    target_query = f"""
+    SELECT
+      DATE_TRUNC('day', {sql_item_name(pipe.columns['datetime'], pipe.instance_connector.flavor)}) AS days,
+      COUNT(*) AS rowcount
+    FROM {sql_item_name(str(pipe), pipe.instance_connector.flavor)}
+    GROUP BY days
+    """
+
+    source_rowcounts_df = pipe.connector.read(source_query, debug=debug)
+    target_rowcounts_df = pipe.instance_connector.read(target_query, debug=debug)
+    diff = filter_unseen_df(source_rowcounts_df, target_rowcounts_df, debug=True)
+    for index, row in diff.iterrows():
+        begin = row['days'].to_pydatetime()
+        end = begin + datetime.timedelta(days=1)
+        fetched_df = pipe.fetch(begin=begin, end=end)
+        filtered_df = pipe.filter_existing(fetched_df, debug=debug)
+        new_dfs.append(filtered_df)
+        fetched_dfs.append(fetched_df)
+        success_tuple = pipe.sync(
+            filtered_df,
+            check_existing = False,
+            debug = debug
+        )
+
+    if with_extras:
+        return success_tuple, pd.concat(new_dfs), pd.concat(fetched_dfs)
+    return success_tuple
 
 
 
 fetch_methods = {
-    #  'naive': _naive_fetch,
     'simple': _simple_fetch,
     'simple-backtrack': _simple_backtrack_fetch,
     'simple-slow-id': _simple_slow_id_fetch,
@@ -327,4 +428,5 @@ sync_methods = {
     'naive': _naive_sync,
     'iterative-simple': _iterative_simple_sync,
     'simple-monthly-flush': _simple_monthly_flush_sync,
+    'rowcount': _rowcount_sync,
 }
