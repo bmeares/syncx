@@ -32,7 +32,7 @@ def _simple_fetch(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
     """
     old_btm = pipe.parameters.get('fetch', {}).get('backtrack_minutes', None)
     pipe.parameters['fetch']['backtrack_minutes'] = 0
-    df = pipe.fetch(debug=debug, begin=pipe.get_sync_time(debug=debug), **kw)
+    df = pipe.fetch(debug=debug, begin=pipe.get_sync_time(debug=debug))
     if old_btm is None:
         del pipe.parameters['fetch']['backtrack_minutes']
     return df
@@ -43,7 +43,9 @@ def _simple_backtrack_fetch(
         debug: bool = False,
         **kw
     ) -> Union['pd.DataFrame', None]:
-    begin = pipe.get_sync_time(debug=debug) - (DEFAULT_BTI_INIT if bti is None else bti)
+    sync_time = pipe.get_sync_time(debug=debug)
+    bti = DEFAULT_BTI_INIT if bti is None else bti
+    begin = (sync_time - bti) if sync_time is not None else None
     return pipe.fetch(begin=begin, debug=debug, **kw)
 
 def _simple_slow_id_fetch(
@@ -71,7 +73,7 @@ def _simple_slow_id_fetch(
 def _append_fetch(
         pipe,
         debug: bool = False,
-        new_ids: bool = False,
+        new_ids: bool = True,
         **kw
     ) -> Union['pd.DataFrame', None]:
     """
@@ -123,8 +125,8 @@ def _append_fetch(
 
 def _join_fetch(
         pipe,
-        debug: bool=False,
-        new_ids: bool=False,
+        debug: bool = False,
+        new_ids: bool = True,
         **kw
     ) -> Union['pd.DataFrame', None]:
     pipe_name = sql_item_name(str(pipe), pipe.connector.flavor)
@@ -199,7 +201,7 @@ def _default_grow_bti(bti: datetime.timedelta) -> datetime.timedelta:
     """
     Grow the BTI by 40% and cap at 720 hours.
     """
-    return max(DEFAULT_GROW_BTI_FACTOR * bti, DEFAULT_GROW_BTI_MAX)
+    return min(DEFAULT_GROW_BTI_FACTOR * bti, DEFAULT_GROW_BTI_MAX)
 
 def _naive_sync(
         pipe,
@@ -217,7 +219,6 @@ def _naive_sync(
         filtered_df,
         check_existing = False,
         debug = debug,
-        **kw
     )
     if with_extras:
         return success_tuple, filtered_df, fetched_df
@@ -256,9 +257,8 @@ def _iterative_simple_sync(
             pipe,
             with_extras = with_extras,
             debug = debug,
-            **kw
         )
-    rt1 = pipe.get_sync_time(newest=False, debug=debug, **kw)
+    rt1 = pipe.get_sync_time(newest=False, debug=debug)
     if bti is None:
         bti = DEFAULT_BTI_INIT
 
@@ -305,7 +305,6 @@ def _iterative_simple_sync(
     success_tuple = pipe.sync(
         _simple_fetch(pipe, end=rt1, debug=debug),
         debug = debug,
-        **kw
     )
     new_dfs.append(filtered_df)
     fetched_dfs.append(fetched_df)
@@ -413,6 +412,15 @@ def _rowcount_sync(
         return success_tuple, pd.concat(new_dfs), pd.concat(fetched_dfs)
     return success_tuple
 
+def _cpi_sync(
+        pipe: Pipe,
+        with_extras: bool = False,
+        debug: bool = False,
+        **kw
+    ):
+    """
+    """
+
 
 
 fetch_methods = {
@@ -420,9 +428,7 @@ fetch_methods = {
     'simple-backtrack': _simple_backtrack_fetch,
     'simple-slow-id': _simple_slow_id_fetch,
     'append': _append_fetch,
-    'append-new-ids': _append_fetch,
     'join': _join_fetch,
-    'join-new-ids': _join_fetch,
 }
 sync_methods = {
     'naive': _naive_sync,

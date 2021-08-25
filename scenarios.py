@@ -113,6 +113,7 @@ class Scenario:
         """
         from meerschaum.utils.packages import import_pandas
         from meerschaum.utils.misc import round_time
+        from meerschaum.connectors.sql.tools import sql_item_name
         pd = import_pandas()
         data = {
             'datetime': [],
@@ -135,6 +136,11 @@ class Scenario:
 
         df = pd.DataFrame(data)
         self.source_connector.to_sql(df, name=self.name, if_exists='replace', debug=debug)
+        query = f"CREATE INDEX ON {sql_item_name(self.name, self.source_connector.flavor)} (datetime)"
+        self.source_connector.exec(query, debug=debug)
+        query = f"CREATE INDEX ON {sql_item_name(self.name, self.source_connector.flavor)} (id)"
+        self.source_connector.exec(query, debug=debug)
+
 
     def init_target_table(
         self,
@@ -274,10 +280,32 @@ class Scenario:
         if target_df is None:
             target_df = self.pipe.get_data(chunksize=CHUNKSIZE, debug=debug)
 
+        ### Calculate the difference between the most recent source and target rows.
         diff = filter_unseen_df(target_df, source_df, debug=debug)
-        self.missed = pd.concat([self.missed, diff]) if 'missed' in self.__dict__ else diff
-        total_error_df = filter_unseen_df(self.pipe.get_data(chunksize=CHUNKSIZE, debug=debug), self.missed)
-        return total_error_df
+
+        ### Append this difference to previous misses.
+        self._missed = pd.concat([self._missed, diff]) if '_missed' in self.__dict__ else diff
+
+        ### Remove rows from the misses which were later retrieved.
+        self._missed = filter_unseen_df(
+            self.pipe.get_data(chunksize=CHUNKSIZE, debug=debug),
+            self._missed
+        )
+        return self._missed
+
+
+    def cleaup(
+        self,
+        debug: bool = False,
+    ) -> None:
+        """
+        Clean up the scenario object before the next simulation.
+        """
+        if '_missed' in self.__dict__:
+            del self._missed
+        if '_outages' in self.__dict__:
+            del self._outages
+
 
     def start(
         self,
@@ -362,9 +390,7 @@ class Scenario:
 
             now = now + SIMULATION_STEPSIZE
 
-        #  print(f"Calculating errors between source and target tables (this might take awhile)...")
-        #  error = self.calculate_error(debug=debug)
-
+        self.cleaup(debug=debug)
         return runtimes_data, errors_data, cumulative_volumes_data, daily_volumes_data
 
 

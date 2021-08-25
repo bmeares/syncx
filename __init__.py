@@ -275,7 +275,6 @@ def sync(
     if sync_method in fetch_methods:
         fetched_df = fetch_methods[sync_method](
             _pipe,
-            new_ids = ('new-ids' in sync_method),
             debug = debug
         )
         filtered_df = _pipe.filter_existing(fetched_df, debug=debug)
