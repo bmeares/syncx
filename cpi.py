@@ -15,7 +15,10 @@ def _prod_mod(items, mod):
     return result
 
 def _choose_prime(seconds: int) -> int:
-    from constants import YEAR_SECONDS, YEAR_INTERVAL_PRIMES
+    try:
+        from .constants import YEAR_SECONDS, YEAR_INTERVAL_PRIMES
+    except ImportError:
+        from constants import YEAR_SECONDS, YEAR_INTERVAL_PRIMES
     years = seconds / YEAR_SECONDS
     if years > max(YEAR_INTERVAL_PRIMES):
         raise Exception(ValueError, 'Interval is too large.')
@@ -29,7 +32,6 @@ def reconcile_sets(A, B, Zs, begin_int: int, end_int: int):
     Assume set B is a subset of A (DeltaB is the null set).
     """
     import math, numpy as np
-    from sympy.polys.specialpolys import interpolating_poly
     import galois
 
     m = len(Zs)
