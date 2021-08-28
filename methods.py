@@ -217,27 +217,49 @@ def _cpi_fetch(
     pd = import_pandas()
     CPI_THRESHOLD = 1000
 
+    source_dt_name = sql_item_name(pipe.columns['datetime'], pipe.connector.flavor)
+    target_dt_name = sql_item_name(pipe.columns['datetime'], pipe.instance_connector.flavor)
+
+    #  if begin is None:
+        #  if end is None:
+            #  begin = pipe.get_sync_time(debug=debug)
+            #  if begin is None:
+                #  return _naive_fetch(pipe, debug=debug)
+
     if begin is None:
-        if end is None:
-            begin = pipe.get_sync_time(debug=debug)
-            if begin is None:
-                return _naive_fetch(pipe, debug=debug)
-        else:
-            return _simple_fetch(pipe, end=end, debug=debug)
+        begin_query = f"""
+        WITH definition AS ({pipe.parameters['fetch']['definition']})
+        SELECT MIN({source_dt_name}) AS dt
+        FROM definition
+        """
+        begin = pipe.instance_connector.value(begin_query, debug=debug)
+
+    if end is None:
+        end_query = f"""
+        WITH definition AS ({pipe.parameters['fetch']['definition']})
+        SELECT MAX({source_dt_name}) AS dt
+        FROM definition
+        """
+        end = pipe.instance_connector.value(end_query, debug=debug)
+
+    begin_int = int(begin.timestamp())
+    end_int = int(end.timestamp() - begin_int) + 1
 
     id_name = sql_item_name(pipe.columns['id'], pipe.instance_connector.flavor)
     pipe_name = sql_item_name(str(pipe), pipe.instance_connector.flavor)
     ids_query = f"SELECT DISTINCT {id_name} FROM {pipe_name}"
-    target_ids = pipe.instance_connector.read(ids_query, debug=True)
+    target_ids = list(pipe.instance_connector.read(ids_query, debug=True)[pipe.columns['id']])
 
     ### TODO get new IDs from source
     #  get_new_ids = 
 
     def _per_id(_id):
         source_rowcount = pipe.connector.get_pipe_rowcount(
-            pipe, remote=True, begin=begin, end=end, debug=debug, params={pipe.},
+            pipe, remote=True, begin=begin, end=end, debug=True, params={pipe.columns['id']: _id},
         )
-        target_rowcount = pipe.instance_connector.get_pipe_rowcount(pipe, begin=begin, end=end, debug=debug)
+        target_rowcount = pipe.instance_connector.get_pipe_rowcount(
+            pipe, begin=begin, end=end, debug=True, params={pipe.columns['id']: _id}
+        )
 
         print(source_rowcount)
         print(target_rowcount)
@@ -247,25 +269,15 @@ def _cpi_fetch(
         if source_rowcount == target_rowcount:
             return None           
 
-        source_dt_name = sql_item_name(pipe.columns['datetime'], pipe.connector.flavor)
-        target_dt_name = sql_item_name(pipe.columns['datetime'], pipe.instance_connector.flavor)
 
         m = int(source_rowcount - target_rowcount)
         if m > CPI_THRESHOLD or target_rowcount == 0:
-            return _simple_fetch(pipe, debug=debug)
+            return _simple_fetch(pipe, begin=begin, end=end, debug=debug)
 
-        Zs = list(range(-1, (-1 * m), -1))
-        print('M:', m)
+        Zs = list(range(-1, (-1 * (m + 1)), -1))
+        print('m:', m)
+        print('Z:', Zs)
         input()
-        begin_int = int(begin.timestamp())
-        if end is None:
-            end_query = f"""
-            WITH definition AS ({pipe.parameters['fetch']['definition']})
-            SELECT MAX({source_dt_name}) AS dt
-            FROM definition
-            """
-            end = pipe.instance_connector.value(end_query, debug=debug)
-        end_int = int(end.timestamp() - begin_int) + 1
         prime = _choose_prime(end_int)
         GF = galois.GF(prime)
         fZs = np.negative(GF([abs(Z) for Z in Zs]))
@@ -339,10 +351,8 @@ def _cpi_fetch(
         final_query = final_query[-2] + ')'
         return pipe.connector.read(final_query, debug=debug)
     
-    fetched_dfs = []
-    for _id in target_ids:
-        fetched_dfs.append(_per_id(_id)))
-    return pd.concat(fetched_dfs)
+    fetched_dfs = [_per_id(_id) for _id in target_ids]
+    return pd.concat(fetched_dfs) if np.any(fetched_dfs) else None
 
 
 ######################################
@@ -410,6 +420,7 @@ def _generic_iterate_sync(
         grow_bti: Optional[Callable[[datetime.timedelta], datetime.timedelta]] = None,
         max_traveral_interval: Optional[datetime.timedelta] = None,
         with_extras: bool = False,
+        check_existing: bool = True,
         fetch_function: Callable[
             [Pipe, Optional[datetime], Optional[datetime]],
             'pd.DataFrame'
@@ -441,31 +452,33 @@ def _generic_iterate_sync(
     new_dfs, fetched_dfs = [], []
 
     ### First sync rows newer than rt0.
-    fetched_df = fetch_function(pipe, begin=rt0)
-    filtered_df = pipe.filter_existing(fetched_df, chunksize=CHUNKSIZE, debug=debug)
-    success_tuple = pipe.sync(
-        fetched_df,
-        check_existing = False,
-        chunksize = CHUNKSIZE,
-        debug = debug,
-    )
-    new_dfs.append(filtered_df)
-    fetched_dfs.append(fetched_df)
-
-    et = rt0
-    st = rt0 - bti
-    while st > rt1:
-        ### Perform a simple sync over the interval from st to et.
-        fetched_df = fetch_function(pipe, begin=st, end=et)
-        filtered_df = pipe.filter_existing(fetched_df, chunksize=CHUNKSIZE, debug=debug)
+    fetched_df = fetch_function(pipe, begin=rt0, debug=debug)
+    if fetched_df is not None:
+        filtered_df = pipe.filter_existing(fetched_df, chunksize=CHUNKSIZE, debug=debug) if check_existing else fetched_df
         success_tuple = pipe.sync(
-            fetched_df,
-            check_existing = False,
+            filtered_df,
+            check_existing = True,
             chunksize = CHUNKSIZE,
             debug = debug,
         )
         new_dfs.append(filtered_df)
         fetched_dfs.append(fetched_df)
+
+    et = rt0
+    st = rt0 - bti
+    while st > rt1:
+        ### Perform a simple sync over the interval from st to et.
+        fetched_df = fetch_function(pipe, begin=st, end=et, debug=debug)
+        if fetched_df is not None:
+            filtered_df = pipe.filter_existing(fetched_df, chunksize=CHUNKSIZE, debug=debug) if check_existing else fetched_df
+            success_tuple = pipe.sync(
+                filtered_df,
+                check_existing = True,
+                chunksize = CHUNKSIZE,
+                debug = debug,
+            )
+            new_dfs.append(filtered_df)
+            fetched_dfs.append(fetched_df)
 
         ### Move to the next chunk in the past.
         bti = grow_bti(bti) if grow_bti is not False else bti
@@ -474,14 +487,16 @@ def _generic_iterate_sync(
 
     ### Finally sync rows older than rt1 (only if a maximum interval is not provided).
     if max_traveral_interval is not None:
-        fetched_df = fetch_function(pipe, end=rt1)
-        filtered_df = pipe.filter_existing(fetched_df, chunksize=CHUNKSIZE, debug=debug)
-        success_tuple = pipe.sync(
-            _simple_fetch(pipe, end=rt1, debug=debug),
-            debug = debug,
-        )
-        new_dfs.append(filtered_df)
-        fetched_dfs.append(fetched_df)
+        fetched_df = fetch_function(pipe, end=rt1, debug=debug)
+        if fetched_df is not None:
+            filtered_df = pipe.filter_existing(fetched_df, chunksize=CHUNKSIZE, debug=debug) if check_existing else fetched_df
+            success_tuple = pipe.sync(
+                filtered_df,
+                check_existing = True,
+                debug = debug,
+            )
+            new_dfs.append(filtered_df)
+            fetched_dfs.append(fetched_df)
     if with_extras:
         return success_tuple, pd.concat(new_dfs), pd.concat(fetched_dfs)
     return success_tuple
@@ -568,7 +583,7 @@ def _rowcount_sync(
 
     source_rowcounts_df = pipe.connector.read(source_query, debug=debug)
     target_rowcounts_df = pipe.instance_connector.read(target_query, debug=debug)
-    diff = filter_unseen_df(source_rowcounts_df, target_rowcounts_df, debug=True)
+    diff = filter_unseen_df(source_rowcounts_df, target_rowcounts_df, debug=debug)
     for index, row in diff.iterrows():
         begin = row['days'].to_pydatetime()
         end = begin + datetime.timedelta(days=1)
@@ -598,6 +613,7 @@ def _iterative_cpi_sync(
     return _generic_iterate_sync(
         pipe,
         fetch_function = _cpi_fetch,
+        check_existing = True,
         with_extras = with_extras,
         debug = debug,
     )
