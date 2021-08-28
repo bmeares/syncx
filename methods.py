@@ -219,6 +219,14 @@ def _cpi_fetch(
 
     source_dt_name = sql_item_name(pipe.columns['datetime'], pipe.connector.flavor)
     target_dt_name = sql_item_name(pipe.columns['datetime'], pipe.instance_connector.flavor)
+    source_id_name = (
+        sql_item_name(pipe.columns['id'], pipe.connector.flavor)
+        if 'id' in pipe.columns else None
+    )
+    target_id_name = (
+        sql_item_name(pipe.columns['id'], pipe.instance_connector.flavor)
+        if 'id' in pipe.columns else None
+    )
 
     #  if begin is None:
         #  if end is None:
@@ -245,10 +253,12 @@ def _cpi_fetch(
     begin_int = int(begin.timestamp())
     end_int = int(end.timestamp() - begin_int) + 1
 
-    id_name = sql_item_name(pipe.columns['id'], pipe.instance_connector.flavor)
     pipe_name = sql_item_name(str(pipe), pipe.instance_connector.flavor)
-    ids_query = f"SELECT DISTINCT {id_name} FROM {pipe_name}"
-    target_ids = list(pipe.instance_connector.read(ids_query, debug=True)[pipe.columns['id']])
+    ids_query = f"SELECT DISTINCT {target_id_name} FROM {pipe_name}"
+    target_ids = (
+        list(pipe.instance_connector.read(ids_query, debug=True)[pipe.columns['id']])
+        if target_id_name is not None else [None]
+    )
 
     ### TODO get new IDs from source
     #  get_new_ids = 
@@ -264,7 +274,7 @@ def _cpi_fetch(
         print(source_rowcount)
         print(target_rowcount)
         print(begin, end)
-        input()
+        #  input()
 
         if source_rowcount == target_rowcount:
             return None           
@@ -277,16 +287,18 @@ def _cpi_fetch(
         Zs = list(range(-1, (-1 * (m + 1)), -1))
         print('m:', m)
         print('Z:', Zs)
-        input()
+        #  input()
         prime = _choose_prime(end_int)
         GF = galois.GF(prime)
         fZs = np.negative(GF([abs(Z) for Z in Zs]))
 
-        target_chi_queries = [f"""
+        target_chi_queries = [(f"""
         WITH RECURSIVE t(c) as (
             SELECT ({Z} - (EXTRACT(EPOCH FROM {target_dt_name}) - {begin_int}))::BIGINT
             FROM {pipe_name}
             WHERE {target_dt_name} > '{begin}'::TIMESTAMP AND {target_dt_name} <= '{end}'::TIMESTAMP
+        """ + (f"AND {target_id_name} = '{_id}'" if _id is not None else '') +
+        """
         ), r(c,n) AS (
             SELECT t.c, row_number() OVER () FROM t
         ), p(c,n) AS (
@@ -299,15 +311,18 @@ def _cpi_fetch(
         FROM p WHERE n = (
             SELECT max(n) FROM p
         ) 
-        """ for Z in Zs]
+        """) for Z in Zs]
 
-        source_chi_queries = [f"""
+        source_chi_queries = [(f"""
         WITH RECURSIVE t(c) as (
             SELECT ({Z} - (EXTRACT(EPOCH FROM {source_dt_name}) - {begin_int}))::BIGINT
             FROM (
                 SELECT {source_dt_name}
                 FROM ({pipe.parameters['fetch']['definition']}) AS definition
                 WHERE {source_dt_name} > '{begin}'::TIMESTAMP AND {source_dt_name} <= '{end}'::TIMESTAMP
+
+            """ + (f"AND {target_id_name} = '{_id}'" if _id is not None else '') +
+        """
             ) AS src
         ), r(c,n) AS (
             SELECT t.c, row_number() OVER () FROM t
@@ -321,10 +336,10 @@ def _cpi_fetch(
         FROM p WHERE n = (
             SELECT max(n) FROM p
         ) 
-        """ for Z in Zs]
+        """) for Z in Zs]
         print(source_chi_queries)
         print(Zs)
-        input()
+        #  input()
         chis_source = GF([pipe.connector.value(query, debug=debug) for query in source_chi_queries])
         chis_target = GF([
             pipe.instance_connector.value(query, debug=debug)
@@ -332,7 +347,7 @@ def _cpi_fetch(
         )
         print(chis_source)
         print(chis_target)
-        input()
+        #  input()
         ratios = np.divide(chis_source, chis_target)
         polynomial_fZs = GF([[(Z**i) for i in range(m)] for Z in fZs])
         coefficients = np.linalg.solve(
@@ -429,7 +444,7 @@ def _generic_iterate_sync(
         **kw
     ):
     from meerschaum.utils.packages import import_pandas
-    from meerschaum.utils.misc import filter_unseen_df
+    from meerschaum.utils.misc import filter_unseen_df, round_time
     pd = import_pandas()
 
     rt0 = pipe.get_sync_time(newest=True, debug=debug)
@@ -459,7 +474,7 @@ def _generic_iterate_sync(
             filtered_df,
             check_existing = True,
             chunksize = CHUNKSIZE,
-            debug = debug,
+            debug = True,
         )
         new_dfs.append(filtered_df)
         fetched_dfs.append(fetched_df)
@@ -467,23 +482,28 @@ def _generic_iterate_sync(
     et = rt0
     st = rt0 - bti
     while st > rt1:
+        print(st, et)
+        input("LOOP!")
+        
         ### Perform a simple sync over the interval from st to et.
         fetched_df = fetch_function(pipe, begin=st, end=et, debug=debug)
         if fetched_df is not None:
             filtered_df = pipe.filter_existing(fetched_df, chunksize=CHUNKSIZE, debug=debug) if check_existing else fetched_df
+            input("CHECKING FOR EXISTING")
             success_tuple = pipe.sync(
                 filtered_df,
                 check_existing = True,
                 chunksize = CHUNKSIZE,
                 debug = debug,
             )
+            input('CHECKED')
             new_dfs.append(filtered_df)
             fetched_dfs.append(fetched_df)
 
         ### Move to the next chunk in the past.
         bti = grow_bti(bti) if grow_bti is not False else bti
         et = st
-        st = et - bti
+        st = round_time(et - bti)
 
     ### Finally sync rows older than rt1 (only if a maximum interval is not provided).
     if max_traveral_interval is not None:
