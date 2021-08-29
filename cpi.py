@@ -58,6 +58,12 @@ def reconcile_sets(A, B, Zs, begin_int: int, end_int: int):
     ### Build the matrix of Zs for the polynomial stated above.
     ### e.g. Z = -2 -> [1, -2, 4, -8, 16, -32]
     polynomial_fZs = GF([[(Z**i) for i in range(m)] for Z in fZs])
+    print('fZs')
+    print(fZs)
+    print('polyfzs')
+    print(polynomial_fZs)
+    print('ratios')
+    print(ratios)
 
     coefficients = np.linalg.solve(
         polynomial_fZs,
@@ -84,7 +90,7 @@ def main():
         datetime.datetime.utcfromtimestamp(int(r) + now.timestamp())
         for r in reconcile_sets(
             A, B,
-            list(range(-1, -2, -1)),
+            list(range(-1, -3, -1)),
             begin_int,
             end_int,
         )

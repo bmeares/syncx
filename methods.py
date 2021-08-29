@@ -275,9 +275,10 @@ def _cpi_fetch(
             return None           
 
 
-        m = int(source_rowcount - target_rowcount)
+        m = int(source_rowcount - target_rowcount) * 3
         if m > CPI_THRESHOLD or target_rowcount == 0:
-            return pipe.fetch(begin=begin, end=end, params={pipe.columns['id']: _id}, debug=debug)
+            fetched_df = pipe.fetch(begin=begin, end=end, params={pipe.columns['id']: _id}, debug=debug)
+            return pipe.filter_existing(fetched_df, debug=debug)
 
         Zs = list(range(-1, (-1 * (m + 1)), -1))
         prime = _choose_prime(end_int)
@@ -337,28 +338,44 @@ def _cpi_fetch(
         )
         ratios = np.divide(chis_source, chis_target)
         polynomial_fZs = GF([[(Z**i) for i in range(m)] for Z in fZs])
+        #  print('m')
+        #  print(m)
+        #  print('fZs')
+        #  print(fZs)
+        #  print('Poly fZs')
+        #  print(polynomial_fZs)
+        #  print('ratios')
+        #  print(ratios)
+        #  input()
         coefficients = np.linalg.solve(
             polynomial_fZs,
             ratios
         )
+        #  print('coefficients')
+        #  print(coefficients)
+        #  input()
         poly = galois.Poly(coefficients, order='asc')
-        delta = [datetime.datetime.fromtimestamp(offset + begin_int) for offset in poly.roots()]
+        delta = [datetime.datetime.utcfromtimestamp(int(offset) + begin_int) for offset in poly.roots()]
+        #  print(poly)
+        #  print(delta)
+        #  input()
         final_query = f"""
         WITH definition AS (
             {pipe.parameters['fetch']['definition']}
         ) SELECT * FROM definition
         WHERE {source_dt_name} IN ("""
-        print(delta)
-        input()
         for dt in delta:
             final_query += f"'{dt}'::TIMESTAMP, "
         final_query = (
             final_query[:-2] + ')' + (f" AND {source_id_name} = '{_id}'" if _id is not None else '')
         )
-        return pipe.connector.read(final_query, debug=True)
+        return pipe.connector.read(final_query, debug=debug)
     
     fetched_dfs = [_per_id(_id) for _id in target_ids]
-    return pd.concat(fetched_dfs).drop_duplicates() if np.any(fetched_dfs) else None
+    for df in fetched_dfs:
+        if df is not None:
+            return pd.concat(fetched_dfs).drop_duplicates()
+    return None
 
 
 ######################################
@@ -463,7 +480,7 @@ def _generic_iterate_sync(
         filtered_df = pipe.filter_existing(fetched_df, chunksize=CHUNKSIZE, debug=debug) if check_existing else fetched_df
         success_tuple = pipe.sync(
             filtered_df,
-            check_existing = True,
+            check_existing = False,
             chunksize = CHUNKSIZE,
             debug = debug,
         )
@@ -479,7 +496,7 @@ def _generic_iterate_sync(
             filtered_df = pipe.filter_existing(fetched_df, chunksize=CHUNKSIZE, debug=debug) if check_existing else fetched_df
             success_tuple = pipe.sync(
                 filtered_df,
-                check_existing = True,
+                check_existing = False,
                 chunksize = CHUNKSIZE,
                 debug = debug,
             )
@@ -498,7 +515,7 @@ def _generic_iterate_sync(
             filtered_df = pipe.filter_existing(fetched_df, chunksize=CHUNKSIZE, debug=debug) if check_existing else fetched_df
             success_tuple = pipe.sync(
                 filtered_df,
-                check_existing = True,
+                check_existing = False,
                 debug = debug,
             )
             new_dfs.append(filtered_df)
