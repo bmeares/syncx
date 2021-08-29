@@ -91,7 +91,7 @@ def scenarios(
     pd = import_pandas()
     for scenario_name in run_scenarios:
         scenario_path = scenarios_path / scenario_name
-        scenario_path.mkdir(parent=True, exist_ok=True)
+        scenario_path.mkdir(parents=True, exist_ok=True)
         figures_path = scenario_path / 'figures'
         csv_path = scenario_path / 'csv'
         figures_path.mkdir(parents=True, exist_ok=True)
