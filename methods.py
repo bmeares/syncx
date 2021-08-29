@@ -144,25 +144,8 @@ def _join_fetch(
     sync_times = pipe.connector.read(sync_times_query, debug=debug)
     if len(sync_times) == 0:
         return _naive_fetch(pipe, debug=debug)
-    #  if table_exists(sync_times_table, pipe.connector, debug=debug):
-        #  pipe.connector.exec(f"DROP TABLE {sync_times_name}", silent=True, debug=debug)
-    #  create_temp_table_query = (
-        #  f"CREATE TEMP TABLE {sync_times_name} ("
-        #  + id_name + " " + cols_types[pipe.columns['id']] + ", "
-        #  + dt_name + " " + cols_types[pipe.columns['datetime']] + ")"
-    #  )
-
     _sync_times_q = ""
     _created_temp_table = False
-    #  try:
-        #  if pipe.connector.exec(
-            #  create_temp_table_query, debug=debug, silent=True
-        #  ) is not None:
-            #  pipe.connector.to_sql(sync_times, name=sync_times_table, if_exists='append')
-            #  _created_temp_table = True
-    #  except Exception as e:
-        #  _created_temp_table = False
-
     if not _created_temp_table:
         _sync_times_q = f",\n{sync_times_values_name} AS (\nVALUES\n"
         for _id, _st in sync_times.itertuples(index=False):
@@ -227,13 +210,6 @@ def _cpi_fetch(
         sql_item_name(pipe.columns['id'], pipe.instance_connector.flavor)
         if 'id' in pipe.columns else None
     )
-
-    #  if begin is None:
-        #  if end is None:
-            #  begin = pipe.get_sync_time(debug=debug)
-            #  if begin is None:
-                #  return _naive_fetch(pipe, debug=debug)
-
     if begin is None:
         begin_query = f"""
         WITH definition AS ({pipe.parameters['fetch']['definition']})
@@ -338,27 +314,12 @@ def _cpi_fetch(
         )
         ratios = np.divide(chis_source, chis_target)
         polynomial_fZs = GF([[(Z**i) for i in range(m)] for Z in fZs])
-        #  print('m')
-        #  print(m)
-        #  print('fZs')
-        #  print(fZs)
-        #  print('Poly fZs')
-        #  print(polynomial_fZs)
-        #  print('ratios')
-        #  print(ratios)
-        #  input()
         coefficients = np.linalg.solve(
             polynomial_fZs,
             ratios
         )
-        #  print('coefficients')
-        #  print(coefficients)
-        #  input()
         poly = galois.Poly(coefficients, order='asc')
         delta = [datetime.datetime.utcfromtimestamp(int(offset) + begin_int) for offset in poly.roots()]
-        #  print(poly)
-        #  print(delta)
-        #  input()
         final_query = f"""
         WITH definition AS (
             {pipe.parameters['fetch']['definition']}
@@ -759,15 +720,12 @@ def _bounded_static_iterative_cpi_sync(
     )
 
 
-
-
 fetch_methods = {
     'simple': _simple_fetch,
     'simple-backtrack': _simple_backtrack_fetch,
     'simple-slow-id': _simple_slow_id_fetch,
     'append': _append_fetch,
     'join': _join_fetch,
-    #  'cpi': _cpi_fetch,
 }
 sync_methods = {
     'naive': _naive_sync,

@@ -85,13 +85,18 @@ def scenarios(
             return False, usage
     
     plugin_path = PLUGINS_RESOURCES_PATH / 'syncx'
-    figures_path = plugin_path / 'figures'
-    csv_path = plugin_path / 'csv'
-    figures_path.mkdir(parents=True, exist_ok=True)
-    csv_path.mkdir(parents=True, exist_ok=True)
+    scenarios_path = plugin_path / 'scenarios'
+    scenarios_path.mkdir(parents=True, exist_ok=True)
 
     pd = import_pandas()
     for scenario_name in run_scenarios:
+        scenario_path = scenarios_path / scenario_name
+        scenario_path.mkdir(parent=True, exist_ok=True)
+        figures_path = scenario_path / 'figures'
+        csv_path = scenario_path / 'csv'
+        figures_path.mkdir(parents=True, exist_ok=True)
+        csv_path.mkdir(parents=True, exist_ok=True)
+
         info(f"Testing scenario '{scenario_name}'...")
 
         drt_methods_dfs, rt_methods_dfs, er_methods_dfs, vl_methods_dfs, dvl_methods_dfs = [], [], [], [], []
