@@ -263,6 +263,7 @@ def sync(
     if backtrack_minutes is not None:
         pipe.parameters['backtrack_minutes'] = backtrack_minutes
 
+    from .scenarios import empty_df
     from .methods import fetch_methods, sync_methods
     if sync_method not in sync_methods and sync_method not in fetch_methods:
         warn(f"Invalid sync method '{sync_method}'.")
@@ -277,7 +278,10 @@ def sync(
             _pipe,
             debug = debug
         )
-        filtered_df = _pipe.filter_existing(fetched_df, debug=debug)
+        filtered_df = (
+            _pipe.filter_existing(fetched_df, debug=debug)
+            if fetched_df is not None else empty_df()
+        )
         success_tuple = _pipe.sync(filtered_df, check_existing=False, debug=debug)
         if with_extras:
             return success_tuple, filtered_df, fetched_df

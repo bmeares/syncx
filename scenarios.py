@@ -21,6 +21,10 @@ Row_dtypes = {
     'id': int,
     'value': float,
 }
+def empty_df():
+    from meerschaum.utils.packages import import_pandas
+    pd = import_pandas()
+    return pd.DataFrame({k: [] for k in Row_dtypes}).astype(Row_dtypes)
 
 SIMULATION_BEGIN = datetime.datetime(2021, 1, 1, 0, 0)
 SIMULATION_INTERVAL = datetime.timedelta(days=365)
@@ -366,6 +370,10 @@ class Scenario:
                 check_existing = ('append-only' not in self.name),
                 debug = debug
             )
+            if new_target_df is None:
+                new_target_df = empty_df()
+            if fetched_source_df is None:
+                fetched_source_df = empty_df()
 
             ### Collect evaluation metrics raw data
             runtimes_data['Datetime'].append(now)

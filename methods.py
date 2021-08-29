@@ -441,7 +441,7 @@ def _generic_iterate_sync(
         pipe: Pipe,
         bti: Optional[datetime.timedelta] = None,
         grow_bti: Optional[Callable[[datetime.timedelta], datetime.timedelta]] = None,
-        max_traveral_interval: Optional[datetime.timedelta] = None,
+        max_traversal_interval: Optional[datetime.timedelta] = None,
         with_extras: bool = False,
         check_existing: bool = True,
         fetch_function: Callable[
@@ -463,8 +463,8 @@ def _generic_iterate_sync(
             debug = debug,
         )
     rt1 = (
-        pipe.get_sync_time(newest=False, debug=debug) if max_traveral_interval is None
-        else rt0 - max_traveral_interval
+        pipe.get_sync_time(newest=False, debug=debug) if max_traversal_interval is None
+        else rt0 - max_traversal_interval
     )
     if bti is None:
         bti = DEFAULT_BTI_INIT
@@ -509,7 +509,7 @@ def _generic_iterate_sync(
         st = round_time(et - bti)
 
     ### Finally sync rows older than rt1 (only if a maximum interval is not provided).
-    if max_traveral_interval is not None:
+    if max_traversal_interval is not None:
         fetched_df = fetch_function(pipe, end=rt1, debug=debug)
         if fetched_df is not None:
             filtered_df = pipe.filter_existing(fetched_df, chunksize=CHUNKSIZE, debug=debug) if check_existing else fetched_df
@@ -641,6 +641,26 @@ def _iterative_cpi_sync(
         debug = debug,
     )
 
+def _bounded_iterative_cpi_sync(
+        pipe: Pipe,
+        with_extras: bool = False,
+        debug: bool = False,
+        **kw
+    ):
+    """
+    Iterative across the pipe's interval and perform CPISync on each interval.
+    Stop iterating past 720 hours.
+    """
+    return _generic_iterate_sync(
+        pipe,
+        fetch_function = _cpi_fetch,
+        check_existing = False,
+        max_traversal_interval = datetime.timedelta(hours=720),
+        with_extras = with_extras,
+        debug = debug,
+    )
+
+
 
 
 fetch_methods = {
@@ -649,7 +669,7 @@ fetch_methods = {
     'simple-slow-id': _simple_slow_id_fetch,
     'append': _append_fetch,
     'join': _join_fetch,
-    'cpi': _cpi_fetch,
+    #  'cpi': _cpi_fetch,
 }
 sync_methods = {
     'naive': _naive_sync,
@@ -657,4 +677,5 @@ sync_methods = {
     'simple-monthly-flush': _simple_monthly_flush_sync,
     'rowcount': _rowcount_sync,
     'iterative-cpi': _iterative_cpi_sync,
+    'bounded-iterative-cpi': _bounded_iterative_cpi_sync,
 }
