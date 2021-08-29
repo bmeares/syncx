@@ -414,7 +414,7 @@ def _naive_sync(
         return success_tuple, filtered_df, fetched_df
     return success_tuple
 
-def _iterative_simple_sync(
+def _unbounded_dynamic_iterative_simple_sync(
         pipe: Pipe,
         with_extras: bool = False,
         debug: bool = False,
@@ -436,6 +436,63 @@ def _iterative_simple_sync(
         Defaults to a 40% increase with a cap of 720 hours.
     """
     return _generic_iterate_sync(pipe, with_extras=with_extras, debug=debug, **kw)
+
+def _unbounded_static_iterative_simple_sync(
+        pipe: Pipe,
+        with_extras: bool = False,
+        debug: bool = False,
+        **kw
+    ):
+    """
+    Iterate across a pipe's interval and perform a simple sync for each chunk.
+    Use a static BTI of 24 hours.
+    """
+    return _generic_iterate_sync(
+        pipe,
+        with_extras = with_extras,
+        grow_bti = False,
+        bti = datetime.timedelta(hours=24),
+        debug = debug,
+        **kw
+    )
+
+def _bounded_dynamic_iterative_simple_sync(
+        pipe: Pipe,
+        with_extras: bool = False,
+        debug: bool = False,
+        **kw
+    ):
+    """
+    Iterative across the pipe's interval and perform a simple on each interval.
+    Stop iterating past 720 hours.
+    """
+    return _generic_iterate_sync(
+        pipe,
+        fetch_function = _simple_fetch,
+        max_traversal_interval = datetime.timedelta(hours=720),
+        with_extras = with_extras,
+        debug = debug,
+    )
+
+def _bounded_static_iterative_simple_sync(
+        pipe: Pipe,
+        with_extras: bool = False,
+        debug: bool = False,
+        **kw
+    ):
+    """
+    Iterative across the pipe's interval and perform a simple on each interval.
+    Stop iterating past 720 hours.
+    """
+    return _generic_iterate_sync(
+        pipe,
+        fetch_function = _simple_fetch,
+        max_traversal_interval = datetime.timedelta(hours=720),
+        bti = datetime.timedelta(hours=24),
+        grow_bti = False,
+        with_extras = with_extras,
+        debug = debug,
+    )
 
 def _generic_iterate_sync(
         pipe: Pipe,
@@ -624,7 +681,7 @@ def _rowcount_sync(
         return success_tuple, pd.concat(new_dfs), pd.concat(fetched_dfs)
     return success_tuple
 
-def _iterative_cpi_sync(
+def _unbounded_dynamic_iterative_cpi_sync(
         pipe: Pipe,
         with_extras: bool = False,
         debug: bool = False,
@@ -641,7 +698,26 @@ def _iterative_cpi_sync(
         debug = debug,
     )
 
-def _bounded_iterative_cpi_sync(
+def _unbounded_static_iterative_cpi_sync(
+        pipe: Pipe,
+        with_extras: bool = False,
+        debug: bool = False,
+        **kw
+    ):
+    """
+    Iterative across the pipe's interval and perform CPISync on each interval.
+    """
+    return _generic_iterate_sync(
+        pipe,
+        fetch_function = _cpi_fetch,
+        check_existing = False,
+        grow_bti = False,
+        with_extras = with_extras,
+        debug = debug,
+    )
+
+
+def _bounded_dynamic_iterative_cpi_sync(
         pipe: Pipe,
         with_extras: bool = False,
         debug: bool = False,
@@ -660,6 +736,28 @@ def _bounded_iterative_cpi_sync(
         debug = debug,
     )
 
+def _bounded_static_iterative_cpi_sync(
+        pipe: Pipe,
+        with_extras: bool = False,
+        debug: bool = False,
+        **kw
+    ):
+    """
+    Iterative across the pipe's interval and perform CPISync on each interval.
+    Stop iterating past 720 hours.
+    Use a static BTI of 24 hours.
+    """
+    return _generic_iterate_sync(
+        pipe,
+        fetch_function = _cpi_fetch,
+        check_existing = False,
+        bti = datetime.timedelta(hours=24),
+        grow_bti = False,
+        max_traversal_interval = datetime.timedelta(hours=720),
+        with_extras = with_extras,
+        debug = debug,
+    )
+
 
 
 
@@ -673,9 +771,14 @@ fetch_methods = {
 }
 sync_methods = {
     'naive': _naive_sync,
-    'iterative-simple': _iterative_simple_sync,
+    'unbounded-dynamic-iterative-simple': _unbounded_dynamic_iterative_simple_sync,
+    'unbounded-static-iterative-simple': _unbounded_static_iterative_simple_sync,
+    'bounded-dynamic-iterative-simple': _unbounded_dynamic_iterative_simple_sync,
+    'bounded-static-iterative-simple': _unbounded_static_iterative_simple_sync,
     'simple-monthly-flush': _simple_monthly_flush_sync,
     'rowcount': _rowcount_sync,
-    'iterative-cpi': _iterative_cpi_sync,
-    'bounded-iterative-cpi': _bounded_iterative_cpi_sync,
+    'unbounded-dynamic-iterative-cpi': _unbounded_dynamic_iterative_cpi_sync,
+    'unbounded-static-iterative-cpi': _unbounded_dynamic_iterative_cpi_sync,
+    'bounded-dynamic-iterative-cpi': _bounded_dynamic_iterative_cpi_sync,
+    'bounded-static-iterative-cpi': _bounded_static_iterative_cpi_sync,
 }
