@@ -250,13 +250,13 @@ def _cpi_fetch(
         """
         end = pipe.instance_connector.value(end_query, debug=debug)
 
-    begin_int = int(begin.timestamp())
-    end_int = int(end.timestamp() - begin_int) + 1
+    begin_int = int(begin.replace(tzinfo=datetime.timezone.utc).timestamp())
+    end_int = int(end.replace(tzinfo=datetime.timezone.utc).timestamp() - begin_int) + 1
 
     pipe_name = sql_item_name(str(pipe), pipe.instance_connector.flavor)
     ids_query = f"SELECT DISTINCT {target_id_name} FROM {pipe_name}"
     target_ids = (
-        list(pipe.instance_connector.read(ids_query, debug=True)[pipe.columns['id']])
+        list(pipe.instance_connector.read(ids_query, debug=debug)[pipe.columns['id']])
         if target_id_name is not None else [None]
     )
 
@@ -265,16 +265,11 @@ def _cpi_fetch(
 
     def _per_id(_id):
         source_rowcount = pipe.connector.get_pipe_rowcount(
-            pipe, remote=True, begin=begin, end=end, debug=True, params={pipe.columns['id']: _id},
+            pipe, remote=True, begin=begin, end=end, debug=debug, params={pipe.columns['id']: _id},
         )
         target_rowcount = pipe.instance_connector.get_pipe_rowcount(
-            pipe, begin=begin, end=end, debug=True, params={pipe.columns['id']: _id}
+            pipe, begin=begin, end=end, debug=debug, params={pipe.columns['id']: _id}
         )
-
-        print(source_rowcount)
-        print(target_rowcount)
-        print(begin, end)
-        #  input()
 
         if source_rowcount == target_rowcount:
             return None           
@@ -282,12 +277,9 @@ def _cpi_fetch(
 
         m = int(source_rowcount - target_rowcount)
         if m > CPI_THRESHOLD or target_rowcount == 0:
-            return _simple_fetch(pipe, begin=begin, end=end, debug=debug)
+            return pipe.fetch(begin=begin, end=end, params={pipe.columns['id']: _id}, debug=debug)
 
         Zs = list(range(-1, (-1 * (m + 1)), -1))
-        print('m:', m)
-        print('Z:', Zs)
-        #  input()
         prime = _choose_prime(end_int)
         GF = galois.GF(prime)
         fZs = np.negative(GF([abs(Z) for Z in Zs]))
@@ -297,7 +289,7 @@ def _cpi_fetch(
             SELECT ({Z} - (EXTRACT(EPOCH FROM {target_dt_name}) - {begin_int}))::BIGINT
             FROM {pipe_name}
             WHERE {target_dt_name} > '{begin}'::TIMESTAMP AND {target_dt_name} <= '{end}'::TIMESTAMP
-        """ + (f"AND {target_id_name} = '{_id}'" if _id is not None else '') +
+        """ + (f" AND {target_id_name} = '{_id}'" if _id is not None else '') +
         """
         ), r(c,n) AS (
             SELECT t.c, row_number() OVER () FROM t
@@ -320,8 +312,7 @@ def _cpi_fetch(
                 SELECT {source_dt_name}
                 FROM ({pipe.parameters['fetch']['definition']}) AS definition
                 WHERE {source_dt_name} > '{begin}'::TIMESTAMP AND {source_dt_name} <= '{end}'::TIMESTAMP
-
-            """ + (f"AND {target_id_name} = '{_id}'" if _id is not None else '') +
+            """ + (f" AND {target_id_name} = '{_id}'" if _id is not None else '') +
         """
             ) AS src
         ), r(c,n) AS (
@@ -337,17 +328,13 @@ def _cpi_fetch(
             SELECT max(n) FROM p
         ) 
         """) for Z in Zs]
-        print(source_chi_queries)
-        print(Zs)
-        #  input()
-        chis_source = GF([pipe.connector.value(query, debug=debug) for query in source_chi_queries])
+        chis_source = GF([
+            pipe.connector.value(query, debug=debug) % prime for query in source_chi_queries]
+        )
         chis_target = GF([
-            pipe.instance_connector.value(query, debug=debug)
+            pipe.instance_connector.value(query, debug=debug) % prime
             for query in target_chi_queries]
         )
-        print(chis_source)
-        print(chis_target)
-        #  input()
         ratios = np.divide(chis_source, chis_target)
         polynomial_fZs = GF([[(Z**i) for i in range(m)] for Z in fZs])
         coefficients = np.linalg.solve(
@@ -361,13 +348,17 @@ def _cpi_fetch(
             {pipe.parameters['fetch']['definition']}
         ) SELECT * FROM definition
         WHERE {source_dt_name} IN ("""
+        print(delta)
+        input()
         for dt in delta:
             final_query += f"'{dt}'::TIMESTAMP, "
-        final_query = final_query[-2] + ')'
-        return pipe.connector.read(final_query, debug=debug)
+        final_query = (
+            final_query[:-2] + ')' + (f" AND {source_id_name} = '{_id}'" if _id is not None else '')
+        )
+        return pipe.connector.read(final_query, debug=True)
     
     fetched_dfs = [_per_id(_id) for _id in target_ids]
-    return pd.concat(fetched_dfs) if np.any(fetched_dfs) else None
+    return pd.concat(fetched_dfs).drop_duplicates() if np.any(fetched_dfs) else None
 
 
 ######################################
@@ -474,7 +465,7 @@ def _generic_iterate_sync(
             filtered_df,
             check_existing = True,
             chunksize = CHUNKSIZE,
-            debug = True,
+            debug = debug,
         )
         new_dfs.append(filtered_df)
         fetched_dfs.append(fetched_df)
@@ -482,21 +473,16 @@ def _generic_iterate_sync(
     et = rt0
     st = rt0 - bti
     while st > rt1:
-        print(st, et)
-        input("LOOP!")
-        
         ### Perform a simple sync over the interval from st to et.
         fetched_df = fetch_function(pipe, begin=st, end=et, debug=debug)
         if fetched_df is not None:
             filtered_df = pipe.filter_existing(fetched_df, chunksize=CHUNKSIZE, debug=debug) if check_existing else fetched_df
-            input("CHECKING FOR EXISTING")
             success_tuple = pipe.sync(
                 filtered_df,
                 check_existing = True,
                 chunksize = CHUNKSIZE,
                 debug = debug,
             )
-            input('CHECKED')
             new_dfs.append(filtered_df)
             fetched_dfs.append(fetched_df)
 
@@ -633,7 +619,7 @@ def _iterative_cpi_sync(
     return _generic_iterate_sync(
         pipe,
         fetch_function = _cpi_fetch,
-        check_existing = True,
+        check_existing = False,
         with_extras = with_extras,
         debug = debug,
     )

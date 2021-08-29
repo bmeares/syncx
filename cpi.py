@@ -76,15 +76,15 @@ def main():
 
     begin_int = int(begin.timestamp() - now.timestamp())
     end_int = int(end.timestamp() - now.timestamp())
-    n_rows = 100
-    missing_rows = 10
+    n_rows = 9
+    missing_rows = 1
     A = [random.choice(range(begin_int, end_int)) for i in range(n_rows)]
     B = A[:(-1 * missing_rows)] 
     delta_A = [
         datetime.datetime.utcfromtimestamp(int(r) + now.timestamp())
         for r in reconcile_sets(
             A, B,
-            list(range(-1, -100, -1)),
+            list(range(-1, -2, -1)),
             begin_int,
             end_int,
         )
