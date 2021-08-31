@@ -138,11 +138,13 @@ class Scenario:
         for col in data:
             data[col] = pd.Series(data[col], dtype=Row_dtypes[col])
 
-        df = pd.DataFrame(data)
-        self.source_connector.to_sql(df, name=self.name, if_exists='replace', debug=debug)
         table_name = sql_item_name(self.name, self.source_connector.flavor)
         dt_index_name = sql_item_name(self.name + '_' + 'datetime_index', self.source_connector.flavor)
         id_index_name = sql_item_name(self.name + '_' + 'id_index', self.source_connector.flavor)
+        df = pd.DataFrame(data)
+        query = f"DROP TABLE {table_name}"
+        self.source_connector.exec(query, silent=True)
+        self.source_connector.to_sql(df, name=self.name, if_exists='replace', debug=debug)
         query = f"DROP INDEX {dt_index_name}"
         self.source_connector.exec(query, silent=True)
         query = f"CREATE INDEX {dt_index_name} ON {table_name} (datetime)"
