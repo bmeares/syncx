@@ -140,9 +140,12 @@ class Scenario:
 
         df = pd.DataFrame(data)
         self.source_connector.to_sql(df, name=self.name, if_exists='replace', debug=debug)
-        query = f"CREATE INDEX datetime_index ON {sql_item_name(self.name, self.source_connector.flavor)} (datetime)"
+        table_name = sql_item_name(self.name, self.source_connector.flavor)
+        dt_index_name = sql_item_name(self.name + '_' + 'datetime_index', self.source_connector.flavor)
+        id_index_name = sql_item_name(self.name + '_' + 'id_index', self.source_connector.flavor)
+        query = f"CREATE INDEX {dt_index_name} ON {table_name} (datetime)"
         self.source_connector.exec(query, debug=debug)
-        query = f"CREATE INDEX id_index ON {sql_item_name(self.name, self.source_connector.flavor)} (id)"
+        query = f"CREATE INDEX {id_index_name} ON {table_name} (id)"
         self.source_connector.exec(query, debug=debug)
 
 

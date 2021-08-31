@@ -261,6 +261,8 @@ def _cpi_fetch(
         GF = galois.GF(prime)
         fZs = np.negative(GF([abs(Z) for Z in Zs]))
 
+        _source_mod = ('%' if pipe.connector.flavor == 'duckdb' else '%%')
+        _target_mod = ('%' if pipe.instance_connector.flavor == 'duckdb' else '%%')
         target_chi_queries = [(f"""
         WITH RECURSIVE t(c) as (
             SELECT ({Z} - (EXTRACT(EPOCH FROM {target_dt_name}) - {begin_int}))::BIGINT
@@ -273,7 +275,7 @@ def _cpi_fetch(
         ), p(c,n) AS (
             SELECT c, n FROM r WHERE n = 1
             UNION ALL
-            SELECT (r.c * p.c) """ + '%%' + f""" {prime}, r.n
+            SELECT (r.c * p.c) """ + _target_mod + f""" {prime}, r.n
             FROM p JOIN r ON p.n + 1 = r.n
         )
         SELECT c
@@ -297,7 +299,7 @@ def _cpi_fetch(
         ), p(c,n) AS (
             SELECT c, n FROM r WHERE n = 1
             UNION ALL
-            SELECT (r.c * p.c) """ + '%%' + f""" {prime}, r.n
+            SELECT (r.c * p.c) """ + _source_mod + f""" {prime}, r.n
             FROM p JOIN r ON p.n + 1 = r.n
         )
         SELECT c
