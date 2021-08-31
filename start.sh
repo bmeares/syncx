@@ -37,7 +37,7 @@ cp -r $SYNCX_DIR/scenarios $BACKUP_DIR/$RUN2
 ### SIMPLE CORRECT LATER
 
 python -m meerschaum scenarios $SCENARIOS\
-  --sync-methods simple simple-monthly-flush rowcount simple-monthly-unbounded-dynamic-cpi \
+  --sync-methods simple simple-monthly-naive rowcount simple-monthly-cpi \
   --iterations $ITERATIONS --begin $BEGIN --end $END --source $SOURCE --target $TARGET
 mkdir -p $BACKUP_DIR/$RUN3
 cp -r $SYNCX_DIR/scenarios $BACKUP_DIR/$RUN3
