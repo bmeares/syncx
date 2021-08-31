@@ -564,7 +564,7 @@ def _simple_monthly_unbounded_dynamic_iterative_cpi_sync(
     """
     Perform a simple sync but call an unbounded dynamic iterative CPISync at the beginning of each month.
     """
-    return _generic_iterate_sync(
+    return _generic_monthly_sync(
         pipe,
         monthly_sync_function = _unbounded_dynamic_iterative_cpi_sync,
         with_extras = with_extras,
@@ -584,18 +584,17 @@ def _generic_monthly_sync(
     """
     from .scenarios import get_last_month
     global _generic_monthly_last_sync_time
-    if _simple_monthly_flush_last_sync_time is None:
+    if _generic_monthly_last_sync_time is None:
         naive_result = _naive_sync(pipe, with_extras=with_extras, debug=debug)
         _generic_monthly_last_sync_time = pipe.get_sync_time(debug=debug)
         return naive_result
-
     _sync_time = pipe.get_sync_time(debug=debug)
     if _sync_time is None:
         naive_result = _naive_sync(pipe, with_extras=with_extras, debug=debug)
         _generic_monthly_last_sync_time = pipe.get_sync_time(debug=debug)
         return naive_result
         
-    if _sync_time.month != _simple_monthly_flush_last_sync_time.month:
+    if _sync_time.month != _generic_monthly_last_sync_time.month:
         result = monthly_sync_function(pipe, with_extras=with_extras, debug=debug)
     else:
         fetched_df = _simple_fetch(pipe, debug=debug)
@@ -763,9 +762,9 @@ sync_methods = {
     'unbounded-static-iterative-simple': _unbounded_static_iterative_simple_sync,
     'bounded-dynamic-iterative-simple': _unbounded_dynamic_iterative_simple_sync,
     'bounded-static-iterative-simple': _unbounded_static_iterative_simple_sync,
-    'simple-monthly-flush': _simple_monthly_flush_sync,
-    'simple-monthly-unbounded-dynamic-iterative-cpi':  _simple_monthly_unbounded_dynamic_iterative_cpi_sync,
-    'rowcount': _rowcount_sync,
+    'simple-monthly-naive': _simple_monthly_flush_sync,
+    'simple-monthly-cpi':  _simple_monthly_unbounded_dynamic_iterative_cpi_sync,
+    'daily-rowcount': _rowcount_sync,
     'unbounded-dynamic-iterative-cpi': _unbounded_dynamic_iterative_cpi_sync,
     'unbounded-static-iterative-cpi': _unbounded_dynamic_iterative_cpi_sync,
     'bounded-dynamic-iterative-cpi': _bounded_dynamic_iterative_cpi_sync,
