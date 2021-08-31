@@ -542,38 +542,66 @@ def _generic_iterate_sync(
         return success_tuple, pd.concat(new_dfs), pd.concat(fetched_dfs)
     return success_tuple
 
-_simple_monthly_flush_last_sync_time = None
 def _simple_monthly_flush_sync(
         pipe: Pipe,
         with_extras: bool = False,
         debug: bool = False,
         **kw
-    ) -> SuccessTuple:
+    ):
     """
     Perform a simple sync but flush the pipe (naive sync) at the beginning of every month.
     """
+    return _generic_iterate_sync(pipe, with_extras=with_extras, debug=debug)
+
+def _simple_monthly_unbounded_dynamic_iterative_cpi_sync(
+        pipe: Pipe,
+        with_extras: bool = False,
+        debug: bool = False,
+        **kw
+    ):
+    """
+    Perform a simple sync but call an unbounded dynamic iterative CPISync at the beginning of each month.
+    """
+    return _generic_iterate_sync(
+        pipe,
+        monthly_sync_function = _unbounded_dynamic_iterative_cpi_sync,
+        with_extras = with_extras,
+        debug = debug,
+    )
+
+_generic_monthly_last_sync_time = None
+def _generic_monthly_sync(
+        pipe: Pipe,
+        with_extras: bool = False,
+        monthly_sync_function: Callable[[Pipe], pd.DataFrame] = _naive_sync,
+        debug: bool = False,
+        **kw
+    ) -> SuccessTuple:
+    """
+    Perform a simple sync but call the monthly sync function at the beginning of every month.
+    """
     from .scenarios import get_last_month
-    global _simple_monthly_flush_last_sync_time
+    global _generic_monthly_last_sync_time
     if _simple_monthly_flush_last_sync_time is None:
         naive_result = _naive_sync(pipe, with_extras=with_extras, debug=debug)
-        _simple_monthly_flush_last_sync_time = pipe.get_sync_time(debug=debug)
+        _generic_monthly_last_sync_time = pipe.get_sync_time(debug=debug)
         return naive_result
 
     _sync_time = pipe.get_sync_time(debug=debug)
     if _sync_time is None:
         naive_result = _naive_sync(pipe, with_extras=with_extras, debug=debug)
-        _simple_monthly_flush_last_sync_time = pipe.get_sync_time(debug=debug)
+        _generic_monthly_last_sync_time = pipe.get_sync_time(debug=debug)
         return naive_result
         
     if _sync_time.month != _simple_monthly_flush_last_sync_time.month:
-        result = _naive_sync(pipe, with_extras=with_extras, debug=debug)
+        result = monthly_sync_function(pipe, with_extras=with_extras, debug=debug)
     else:
         fetched_df = _simple_fetch(pipe, debug=debug)
         filtered_df = pipe.filter_existing(fetched_df, debug=debug)
         success_tuple = pipe.sync(filtered_df, check_existing=False, debug=debug)
         result = (success_tuple, filtered_df, fetched_df) if with_extras else success_tuple
 
-    _simple_monthly_flush_last_sync_time = _sync_time
+    _generic_monthly_last_sync_time = _sync_time
     return result
 
 def _rowcount_sync(
@@ -734,6 +762,7 @@ sync_methods = {
     'bounded-dynamic-iterative-simple': _unbounded_dynamic_iterative_simple_sync,
     'bounded-static-iterative-simple': _unbounded_static_iterative_simple_sync,
     'simple-monthly-flush': _simple_monthly_flush_sync,
+    'simple-monthly-unbounded-dynamic-iterative-cpi':  _simple_monthly_unbounded_dynamic_iterative_cpi_sync,
     'rowcount': _rowcount_sync,
     'unbounded-dynamic-iterative-cpi': _unbounded_dynamic_iterative_cpi_sync,
     'unbounded-static-iterative-cpi': _unbounded_dynamic_iterative_cpi_sync,
