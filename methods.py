@@ -586,14 +586,17 @@ def _generic_monthly_sync(
     if last_sync_time is None:
         naive_result = _naive_sync(pipe, with_extras=with_extras, debug=debug)
         pipe.parameters['fetch']['last_sync_time'] = pipe.get_sync_time(debug=debug)
+        _lst = pipe.get_sync_time(debug=debug)
         return naive_result
-    _sync_time = pipe.get_sync_time(debug=debug)
-    if _sync_time is None:
+
+    sync_time = pipe.get_sync_time(debug=debug)
+    if sync_time is None:
         naive_result = _naive_sync(pipe, with_extras=with_extras, debug=debug)
         pipe.parameters['fetch']['last_sync_time'] = pipe.get_sync_time(debug=debug)
+        _lst = pipe.get_sync_time(debug=debug)
         return naive_result
         
-    if _sync_time.month != last_sync_time.month:
+    if sync_time.month != last_sync_time.month:
         result = monthly_sync_function(pipe, with_extras=with_extras, debug=debug)
     else:
         fetched_df = _simple_fetch(pipe, debug=debug)
@@ -601,7 +604,7 @@ def _generic_monthly_sync(
         success_tuple = pipe.sync(filtered_df, check_existing=False, debug=debug)
         result = (success_tuple, filtered_df, fetched_df) if with_extras else success_tuple
 
-    pipe.parameters['fetch']['last_sync_time'] = pipe.get_sync_time(debug=debug)
+    pipe.parameters['fetch']['last_sync_time'] = sync_time
     return result
 
 def _rowcount_sync(
