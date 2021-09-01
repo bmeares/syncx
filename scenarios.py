@@ -14,6 +14,8 @@ from meerschaum.utils.debug import dprint
 from meerschaum.utils.warnings import info
 import datetime, random
 from collections import namedtuple
+RANDOM_SEED = 1234567890
+random.seed(RANDOM_SEED)
 
 Row = namedtuple('Row', ('datetime', 'id', 'value'))
 Row_dtypes = {
@@ -278,6 +280,7 @@ class Scenario:
         self,
         source_df: Optional['pd.DataFrame'] = None,
         target_df: Optional['pd.DataFrame'] = None,
+        immutable: bool = False,
         debug: bool = False
     ) -> 'pd.DataFrame':
         """
@@ -335,6 +338,7 @@ class Scenario:
         from meerschaum import Pipe
         from meerschaum.utils.misc import round_time
         from meerschaum.utils.packages import import_pandas
+        from meerschaum.connectors.sql.tools import sql_item_name
         pd = import_pandas()
 
         now = SIMULATION_BEGIN if begin is None else begin
@@ -348,7 +352,7 @@ class Scenario:
 
         runtimes_data = {'Datetime': [], 'Runtime': []}
         monthly_runtimes_data = {'Month': [], 'Runtime': []}
-        errors_data = {'Datetime': [], 'Errors': []}
+        errors_data = {'Datetime': [], 'Errors': [], 'Percent': []}
         cumulative_volumes_data = {'Datetime': [], 'Rows': []}
         daily_volumes_data = {'Datetime': [], 'Rows': []}
 
@@ -389,12 +393,20 @@ class Scenario:
             runtimes_data['Runtime'].append(time.time() - _start_sync_runtime)
             errors_data['Datetime'].append(now)
             ### Count the differences between the "truth" and "guess" (source and target rows).
-            errors_data['Errors'].append(
-                len(self.calculate_error(
-                    source_df = new_source_df,
-                    target_df = new_target_df,
-                    debug = debug
-                ))
+            _error_df = self.calculate_error(
+                source_df = new_source_df,
+                target_df = new_target_df,
+                debug = debug
+            )
+            errors_data['Errors'].append(len(_error_df))
+            source_count = int(
+                self.source_connector.value(
+                    "SELECT COUNT(*) FROM "
+                    + sql_item_name(self.name, self.source_connector.flavor)
+                )
+            )
+            errors_data['Percent'].append(
+                ((source_count - len(_error_df)) / source_count) * 100
             )
             cumulative_volumes_data['Datetime'].append(now)
             cumulative_volumes_data['Rows'].append(

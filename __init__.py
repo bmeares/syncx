@@ -99,13 +99,14 @@ def scenarios(
 
         info(f"Testing scenario '{scenario_name}'...")
 
-        drt_methods_dfs, rt_methods_dfs, er_methods_dfs, vl_methods_dfs, dvl_methods_dfs = [], [], [], [], []
+        drt_methods_dfs, rt_methods_dfs, er_methods_dfs, rer_methods_dfs, vl_methods_dfs, dvl_methods_dfs = [], [], [], [], [], []
         for sm in run_sync_methods:
             info(f"Testing sync method '{sm}'...")
             combo_name = scenario_name + '_' + sm
             runtimes_dfs = []
             averages_dfs = []
             errors_dfs = []
+            rel_errors_dfs = []
             cumulative_volumes_dfs = []
             daily_volumes_dfs = []
             for i in range(ITERATIONS_PER_SCENARIO_FM if iterations is None else iterations):
@@ -114,7 +115,8 @@ def scenarios(
                     _scenarios[scenario_name].start(sm, begin=begin, end=end, debug=debug)
                 )
                 runtimes_df = pd.DataFrame(runtimes_data)
-                errors_df = pd.DataFrame(errors_data)
+                errors_df = pd.DataFrame(errors_data)[['Datetime', 'Errors']]
+                rel_errors_df = pd.DataFrame(errors_data)[['Datetime', 'Percent']]
                 cumulative_volumes_df = pd.DataFrame(cumulative_volumes_data)
                 daily_volumes_df = pd.DataFrame(daily_volumes_data)
                 runtimes_df[sm] = runtimes_df['Runtime']
@@ -130,6 +132,8 @@ def scenarios(
                 )
                 errors_df[sm] = errors_df['Errors']
                 errors_dfs.append(errors_df[['Datetime', sm]])
+                rel_errors_df[sm] = rel_errors_df['Percent']
+                rel_errors_dfs.append(rel_errors_df[['Datetime', sm]])
                 cumulative_volumes_df[sm] = cumulative_volumes_df['Rows']
                 cumulative_volumes_dfs.append(cumulative_volumes_df[['Datetime', sm]])
                 daily_volumes_df[sm] = daily_volumes_df['Rows']
@@ -138,6 +142,7 @@ def scenarios(
             drt_methods_dfs.append(pd.concat(runtimes_dfs).groupby(by='Datetime', as_index=False).mean())
             rt_methods_dfs.append(pd.concat(averages_dfs).groupby(by='Month', as_index=False).mean())
             er_methods_dfs.append(pd.concat(errors_dfs).groupby(by='Datetime', as_index=False).mean())
+            rer_methods_dfs.append(pd.concat(rel_errors_dfs).groupby(by='Datetime', as_index=False).mean())
             vl_methods_dfs.append(pd.concat(cumulative_volumes_dfs).groupby(by='Datetime', as_index=False).mean())
             dvl_methods_dfs.append(pd.concat(daily_volumes_dfs).groupby(by='Datetime', as_index=False).mean())
 
@@ -155,6 +160,10 @@ def scenarios(
         for _df in er_methods_dfs[1:]:
             er_figure_df = er_figure_df.merge(_df)
 
+        rer_figure_df = rer_methods_dfs[0]
+        for _df in rer_methods_dfs[1:]:
+            rer_figure_df = rer_figure_df.merge(_df)
+
         vl_figure_df = vl_methods_dfs[0]
         for _df in vl_methods_dfs[1:]:
             vl_figure_df = vl_figure_df.merge(_df)
@@ -168,6 +177,8 @@ def scenarios(
         max_rt = max(rt_figure_df[run_sync_methods].max())
         #  min_er = min(er_figure_df[run_sync_methods].min())
         max_er = max(er_figure_df[run_sync_methods].max())
+        min_rer = max(er_figure_df[run_sync_methods].min(), 0)
+        max_rer = min(max(rer_figure_df[run_sync_methods].max()), 100)
         #  min_vl = min(vl_figure_df[run_sync_methods].min())
         max_vl = max(vl_figure_df[run_sync_methods].max())
         #  min_dvl = min(dvl_figure_df[run_sync_methods].min())
@@ -176,12 +187,14 @@ def scenarios(
         ### Create one figure per scenario with all of the methods.
         drt_ax = drt_figure_df.plot(x='Datetime')
         drt_ax.set_ylim([0.0, max_drt + 0.1])
+        plt.ylabel("Seconds")
         drt_ax.set_title(f"Daily Runtimes of Scenario '{scenario_name}'")
         drt_figure_df.to_csv(csv_path / (scenario_name + '_daily_runtime.csv'))
         plt.savefig(figures_path / (scenario_name + '_daily_runtime.png'), bbox_inches="tight")
 
         rt_ax = rt_figure_df.plot(x='Month')
         rt_ax.set_ylim([0.0, max_rt + 0.1])
+        plt.ylabel("Seconds")
         rt_ax.set_title(f"Monthly Average Runtimes of Scenario '{scenario_name}'")
         rt_figure_df.to_csv(csv_path / (scenario_name + '_monthly_runtime.csv'))
         plt.savefig(figures_path / (scenario_name + '_monthly_runtime.png'), bbox_inches="tight")
@@ -190,14 +203,26 @@ def scenarios(
         er_ax.set_ylim([0.0, max_er + 10])
         er_ax.xaxis.set_major_locator(mdates.MonthLocator())
         er_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+        plt.ylabel("Accumulated errors")
         er_ax.set_title(f"Cumulative Errors of Scenario '{scenario_name}'")
         er_figure_df.to_csv(csv_path / (scenario_name + '_errors.csv'))
         plt.savefig(figures_path / (scenario_name + '_errors.png'), bbox_inches="tight")
+
+        rer_ax = rer_figure_df.plot(x='Datetime', kind='line')
+        rer_ax.set_ylim([0.0, max_rer])
+        rer_ax.xaxis.set_major_locator(mdates.MonthLocator())
+        rer_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+        plt.ylabel("Source and Target Synchronization Percentage")
+        rer_ax.set_title(f"Running Accuracy Rate of Scenario '{scenario_name}'")
+        rer_figure_df.to_csv(csv_path / (scenario_name + '_error_rate.csv'))
+        plt.savefig(figures_path / (scenario_name + '_error_rate.png'), bbox_inches="tight")
+
 
         vl_ax = vl_figure_df.plot(x='Datetime', kind='line')
         vl_ax.set_ylim([0, max_vl + 10])
         vl_ax.xaxis.set_major_locator(mdates.MonthLocator())
         vl_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+        plt.ylabel("Rows transferred")
         vl_ax.set_title(f"Cumulative Fetched Row Volume of Scenario '{scenario_name}'")
         vl_figure_df.to_csv(csv_path / (scenario_name + '_cumulative_volume.csv'))
         plt.savefig(figures_path / (scenario_name + '_cumulative_volume.png'), bbox_inches="tight")
@@ -206,6 +231,7 @@ def scenarios(
         dvl_ax.set_ylim([0, max_dvl + 10])
         dvl_ax.xaxis.set_major_locator(mdates.MonthLocator())
         dvl_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+        plt.ylabel("Rows transferred")
         dvl_ax.set_title(f"Daily Fetched Row Volume of Scenario '{scenario_name}'")
         dvl_figure_df.to_csv(csv_path / (scenario_name + '_daily_volume.csv'))
         plt.savefig(figures_path / (scenario_name + '_daily_volume.png'), bbox_inches="tight")
