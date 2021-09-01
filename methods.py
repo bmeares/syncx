@@ -338,6 +338,61 @@ def _cpi_fetch(
     return None
 
 
+def _binary_fetch(
+        pipe: Pipe,
+        begin: Optional[datetime.datetime] = None,
+        end: Optional[datetime.datetime] = None,
+        debug: bool = False,
+        **kw
+    ):
+    """
+    Binary search between begin and end to find missing rows.
+    """
+    source_rowcount = pipe.connector.get_pipe_rowcount(
+        pipe, remote=True, begin=begin, end=end, debug=debug,
+    )
+    target_rowcount = pipe.instance_connector.get_pipe_rowcount(
+        pipe, begin=begin, end=end, debug=debug,
+    )
+    if source_rowcount == target_rowcount:
+        return None
+    if target_rowcount == 0:
+        return pipe.fetch(begin=begin, end=end, debug=debug)
+
+    print('OUT OF SYNC')
+    print(begin, end)
+    print(source_rowcount, target_rowcount)
+    input()
+
+
+    def find_intervals(_begin, _end):
+        _target_rowcount = pipe.instance_connector.get_pipe_rowcount(
+            pipe, begin=_begin, end=_end, debug=debug,
+        )
+        _source_rowcount = pipe.connector.get_pipe_rowcount(
+            pipe, remote=True, begin=_begin, end=_end, debug=debug,
+        )
+        if _target_rowcount == _source_rowcount:
+            print(_begin, _end)
+            print(_target_rowcount, _source_rowcount)
+            return None, None
+        if _target_rowcount == 0:
+            return _begin, _end
+
+        ### Recurse on the first half
+        _interval = _end - _begin
+        _left_half = find_intervals(_begin, _end - (_interval / 2))
+        _right_half = find_intervals(_begin + (_interval / 2), _end)
+
+        print(_left_half)
+        print(_right_half)
+        input()
+
+    find_intervals(begin, end)
+
+
+
+
 ######################################
 #                                    #
 #            Sync methods            #
@@ -568,6 +623,24 @@ def _simple_monthly_unbounded_dynamic_iterative_cpi_sync(
         debug = debug,
     )
 
+
+def _simple_monthly_unbounded_dynamic_iterative_binary_sync(
+        pipe: Pipe,
+        with_extras: bool = False,
+        debug: bool = False,
+        **kw
+    ):
+    """
+    Perform a simple sync but call an unbounded dynamic iterative binary search sync at the beginning of each month.
+    """
+    return _generic_monthly_sync(
+        pipe,
+        monthly_sync_function = _unbounded_dynamic_iterative_binary_sync,
+        with_extras = with_extras,
+        debug = debug,
+    )
+
+
 def _generic_monthly_sync(
         pipe: Pipe,
         with_extras: bool = False,
@@ -748,6 +821,26 @@ def _bounded_static_iterative_cpi_sync(
     )
 
 
+def _unbounded_dynamic_iterative_binary_sync(
+        pipe: Pipe,
+        with_extras: bool = False,
+        debug: bool = False,
+        **kw
+    ):
+    """
+    Iterative across the pipe's interval and perform a binary search sync on each interval.
+    """
+    return _generic_iterate_sync(
+        pipe,
+        fetch_function = _binary_fetch,
+        check_existing = False,
+        with_extras = with_extras,
+        debug = debug,
+    )
+
+
+
+
 fetch_methods = {
     'simple': _simple_fetch,
     'simple-backtrack': _simple_backtrack_fetch,
@@ -763,6 +856,7 @@ sync_methods = {
     'bounded-static-iterative-simple': _unbounded_static_iterative_simple_sync,
     'simple-monthly-naive': _simple_monthly_flush_sync,
     'simple-monthly-cpi':  _simple_monthly_unbounded_dynamic_iterative_cpi_sync,
+    'simple-monthly-binary':  _simple_monthly_unbounded_dynamic_iterative_binary_sync,
     'daily-rowcount': _rowcount_sync,
     'unbounded-dynamic-iterative-cpi': _unbounded_dynamic_iterative_cpi_sync,
     'unbounded-static-iterative-cpi': _unbounded_dynamic_iterative_cpi_sync,

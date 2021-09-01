@@ -177,7 +177,7 @@ def scenarios(
         max_rt = max(rt_figure_df[run_sync_methods].max())
         #  min_er = min(er_figure_df[run_sync_methods].min())
         max_er = max(er_figure_df[run_sync_methods].max())
-        min_rer = max(min(er_figure_df[run_sync_methods].min()), 0)
+        min_rer = max(min(rer_figure_df[run_sync_methods].min()) - 10, 0)
         max_rer = min(max(rer_figure_df[run_sync_methods].max()), 100)
         #  min_vl = min(vl_figure_df[run_sync_methods].min())
         max_vl = max(vl_figure_df[run_sync_methods].max())
