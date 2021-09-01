@@ -147,7 +147,7 @@ def _join_fetch(
     _sync_times_q = ""
     _created_temp_table = False
     if not _created_temp_table:
-        _sync_times_q = f",\n{sync_times_values_name} AS (\nVALUES\n"
+        _sync_times_q = f",\n{sync_times_name} AS (\nSELECT * FROM (\nVALUES\n"
         for _id, _st in sync_times.itertuples(index=False):
             _sync_times_q += (
                 f"(CAST('{_id}' AS " + cols_types[pipe.columns['id']] + f"), "
@@ -158,11 +158,8 @@ def _join_fetch(
                     number=pipe.parameters.get('backtrack_minutes', 0)
                 ) + "),"
             )
-        #  _sync_times_q = _sync_times_q[:(-1 * len('UNION ALL\n'))] + ")"
         _sync_times_q = (
-            _sync_times_q[:-1] + "), " + sync_times_name
-            + f" AS (SELECT column1 AS {id_name}, column2 AS {dt_name} "
-            + f"FROM {sync_times_values_name})"
+            _sync_times_q[:-1] + f"\n) AS t({id_name}, {dt_name})\n) "
         )
 
     definition = pipe.parameters['fetch']['definition']
