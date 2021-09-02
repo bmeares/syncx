@@ -2,7 +2,7 @@
 
 ITERATIONS=1
 BEGIN=2021-01-01
-END=2022-01-01
+END=2021-03-01
 RUN1=01_baseline
 RUN2=02_modified_simple
 RUN3=03_corrective

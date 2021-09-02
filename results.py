@@ -51,11 +51,14 @@ def main(argv):
     #  methods_total_x_times = {method: [] for method in methods}
 
 
+    runs_scenarios_radar_data = {}
     for run in os.listdir(results_dir_path):
         run_dir_path = results_dir_path / run
         if run.startswith('.') or not os.path.isdir(run_dir_path):
             continue
-        scenarios_radar_data = {}
+        if run not in runs_scenarios_radar_data:
+            runs_scenarios_radar_data[run] = {}
+        scenarios_radar_data = runs_scenarios_radar_data[run]
         for dataset, dtypes in datasets_dtypes.items():
             scenarios_dfs = []
             totals_dfs = []
@@ -102,55 +105,55 @@ def main(argv):
             #  )
             #  input()
 
-        make_radar_chart(run, scenarios_radar_data)
+    make_radar_chart(runs_scenarios_radar_data)
     return 0
 
 
-def make_radar_chart(run, scenarios_radar_data):
+def make_radar_chart(runs_scenarios_radar_data):
     import matplotlib.pyplot as plt
     from meerschaum.utils.packages import import_pandas
     import numpy as np
     pd = import_pandas()
-    print(run)
-    for scenario, radar_data in scenarios_radar_data.items():
-        radar_df = pd.DataFrame(radar_data)
-        print(radar_df)
-        input()
+    for run, scenarios_radar_data in runs_scenarios_radar_data.items():
+        for scenario, radar_data in scenarios_radar_data.items():
+            radar_df = pd.DataFrame(radar_data)
+            print(radar_df)
+            input()
 
-        for factor in factors:
-            max_val = df[factor].max()
-            min_val = df[factor].min()
-            val_range = max_val - min_val
-            df[factor + '_Adj'] = df[factor].apply(
-                lambda x: (((x - min_val) * new_range) / val_range) + new_min
-            )
+            for factor in factors:
+                max_val = df[factor].max()
+                min_val = df[factor].min()
+                val_range = max_val - min_val
+                df[factor + '_Adj'] = df[factor].apply(
+                    lambda x: (((x - min_val) * new_range) / val_range) + new_min
+                )
 
-        labels = ['cumulative_volume', 'daily_runtime', 'error_rate']
-        pt = pd.pivot_table(radar_df, values='number', index=['metric'], columns=['method'])
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection="polar")
-        theta = np.arange(len(pt))/float(len(pt))*2.*np.pi
-        lines = []
-        for i, method in enumerate(pt):
-            l, = ax.plot(theta, pt[method], color="C" + str(i + 1), marker="o", label=method)
-            lines.append(l)
+            labels = ['cumulative_volume', 'daily_runtime', 'error_rate']
+            pt = pd.pivot_table(radar_df, values='number', index=['metric'], columns=['method'])
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection="polar")
+            theta = np.arange(len(pt))/float(len(pt))*2.*np.pi
+            lines = []
+            for i, method in enumerate(pt):
+                l, = ax.plot(theta, pt[method], color="C" + str(i + 1), marker="o", label=method)
+                lines.append(l)
 
-        def _close_line(line):
-            x, y = line.get_data()
-            x = np.concatenate((x, [x[0]]))
-            y = np.concatenate((y, [y[0]]))
-            line.set_data(x, y)
+            def _close_line(line):
+                x, y = line.get_data()
+                x = np.concatenate((x, [x[0]]))
+                y = np.concatenate((y, [y[0]]))
+                line.set_data(x, y)
 
-        for l in lines:
-            _close_line(l)
-        ax.set_xticks(theta)
-        ax.set_xticklabels(pt.index)
-        plt.legend()
-        plt.title('Foo')
-        plt.show()
+            for l in lines:
+                _close_line(l)
+            ax.set_xticks(theta)
+            ax.set_xticklabels(pt.index)
+            plt.legend()
+            plt.title('Foo')
+            plt.show()
 
-        print(radar_df)
-        input()
+            print(radar_df)
+            input()
 
 
 
