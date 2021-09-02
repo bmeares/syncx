@@ -348,6 +348,8 @@ def _binary_fetch(
     """
     Binary search between begin and end to find missing rows.
     """
+    from meerschaum.utils.packages import import_pandas
+    pd = import_pandas()
     source_rowcount = pipe.connector.get_pipe_rowcount(
         pipe, remote=True, begin=begin, end=end, debug=debug,
     )
@@ -359,12 +361,8 @@ def _binary_fetch(
     if target_rowcount == 0:
         return pipe.fetch(begin=begin, end=end, debug=debug)
 
-    print('OUT OF SYNC')
-    print(begin, end)
-    print(source_rowcount, target_rowcount)
-    input()
-
-
+    threshold = datetime.timedelta(minutes=15)
+    intervals = []
     def find_intervals(_begin, _end):
         _target_rowcount = pipe.instance_connector.get_pipe_rowcount(
             pipe, begin=_begin, end=_end, debug=debug,
@@ -373,24 +371,26 @@ def _binary_fetch(
             pipe, remote=True, begin=_begin, end=_end, debug=debug,
         )
         if _target_rowcount == _source_rowcount:
-            print(_begin, _end)
-            print(_target_rowcount, _source_rowcount)
-            return None, None
+            return
         if _target_rowcount == 0:
-            return _begin, _end
+            intervals.append((_begin, _end))
+            return
 
         ### Recurse on the first half
         _interval = _end - _begin
-        _left_half = find_intervals(_begin, _end - (_interval / 2))
-        _right_half = find_intervals(_begin + (_interval / 2), _end)
 
-        print(_left_half)
-        print(_right_half)
-        input()
+        if _interval < threshold:
+            intervals.append((_begin, _end))
+            return
+
+        find_intervals(_begin, _end - (_interval / 2))
+        find_intervals(_begin + (_interval / 2), _end)
 
     find_intervals(begin, end)
-
-
+    fetched_dfs = []
+    for _begin, _end in intervals:
+        fetched_dfs.append(pipe.fetch(begin=_begin, end=_end))
+    return pd.concat(fetched_dfs) if fetched_dfs else None
 
 
 ######################################
@@ -684,7 +684,7 @@ def _rowcount_sync(
         **kw
     ) -> Union[SuccessTuple, Tuple[SuccessTuple, 'pd.DataFrame']]:
     """
-    Count the monthly rowcounts and only sync months with different rowcounts.
+    Count the daily rowcounts and only sync months with different rowcounts.
     """
     from meerschaum.connectors.sql.tools import sql_item_name
     from meerschaum.utils.misc import filter_unseen_df
@@ -833,12 +833,67 @@ def _unbounded_dynamic_iterative_binary_sync(
     return _generic_iterate_sync(
         pipe,
         fetch_function = _binary_fetch,
-        check_existing = False,
+        check_existing = True,
         with_extras = with_extras,
         debug = debug,
     )
 
+def _bounded_dynamic_iterative_binary_sync(
+        pipe: Pipe,
+        with_extras: bool = False,
+        debug: bool = False,
+        **kw
+    ):
+    """
+    Iterative across the pipe's interval and perform a binary search sync on each interval.
+    """
+    return _generic_iterate_sync(
+        pipe,
+        fetch_function = _binary_fetch,
+        check_existing = True,
+        with_extras = with_extras,
+        max_traversal_interval = datetime.timedelta(hours=720),
+        debug = debug,
+    )
 
+def _unbounded_static_iterative_binary_sync(
+        pipe: Pipe,
+        with_extras: bool = False,
+        debug: bool = False,
+        **kw
+    ):
+    """
+    Iterative across the pipe's interval and perform a binary search sync on each interval.
+    """
+    return _generic_iterate_sync(
+        pipe,
+        fetch_function = _binary_fetch,
+        check_existing = True,
+        bti = datetime.timedelta(hours=24),
+        grow_bti = False,
+        with_extras = with_extras,
+        debug = debug,
+    )
+
+def _bounded_static_iterative_binary_sync(
+        pipe: Pipe,
+        with_extras: bool = False,
+        debug: bool = False,
+        **kw
+    ):
+    """
+    Iterative across the pipe's interval and perform a binary search sync on each interval.
+    """
+    return _generic_iterate_sync(
+        pipe,
+        fetch_function = _binary_fetch,
+        check_existing = True,
+        with_extras = with_extras,
+        bti = datetime.timedelta(hours=24),
+        grow_bti = False,
+        max_traversal_interval = datetime.timedelta(hours=720),
+        debug = debug,
+    )
 
 
 fetch_methods = {
@@ -862,4 +917,7 @@ sync_methods = {
     'unbounded-static-iterative-cpi': _unbounded_dynamic_iterative_cpi_sync,
     'bounded-dynamic-iterative-cpi': _bounded_dynamic_iterative_cpi_sync,
     'bounded-static-iterative-cpi': _bounded_static_iterative_cpi_sync,
+    'unbounded-dynamic-iterative-binary': _unbounded_dynamic_iterative_binary_sync,
+    'unbounded-static-iterative-binary': _unbounded_static_iterative_binary_sync,
+    'bounded-static-iterative-binary': _bounded_static_iterative_binary_sync,
 }
