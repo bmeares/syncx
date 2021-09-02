@@ -19,7 +19,7 @@ RUN2_STRATS="simple simple-backtrack simple-slow-id append join"
 RUN3_STRATS="simple simple-monthly-naive simple-monthly-cpi simple-monthly-binary"
 
 ### Guaranteed accuracy
-RUN4_STRATS="simple unbounded-dynamic-iterative-simple unbounded-dynamic-iterative-cpi unbounded-dynamic-iterative-binary"
+RUN4_STRATS="simple daily-rowcount unbounded-dynamic-iterative-simple unbounded-dynamic-iterative-cpi unbounded-dynamic-iterative-binary"
 
 ### Mostly perfect accuracy
 RUN5_STRATS="simple bounded-dynamic-iterative-simple bounded-dynamic-iterative-cpi bounded-dynamic-iterative-binary"
