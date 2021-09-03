@@ -108,34 +108,44 @@ def main(argv):
     make_radar_chart(runs_scenarios_radar_data)
     return 0
 
+def normalize_value(value, min_value, max_value, better='higher'):
+    if min_value == max_value and min_value == 100:
+        min_value = 0
+    norm_val = (value - min_value) / (max_value - min_value)
+    final_val = (norm_val if better == 'higher' else (1.0 - norm_val))
+    ### Bump 0 to 0.05 for visibility
+    if final_val == 0:
+        return 0.05
+    return final_val
 
 def make_radar_chart(runs_scenarios_radar_data):
     import matplotlib.pyplot as plt
     from meerschaum.utils.packages import import_pandas
     import numpy as np
     pd = import_pandas()
+    higher_metrics = ('error_rate',)
     for run, scenarios_radar_data in runs_scenarios_radar_data.items():
         for scenario, radar_data in scenarios_radar_data.items():
             radar_df = pd.DataFrame(radar_data)
-            print(radar_df)
-            input()
+            metrics = radar_df['metric'].unique()
+            for metric in metrics:
+                metric_vals = radar_df.where(radar_df['metric'] == metric)['number']
+                mmin, mmax = metric_vals.min(), metric_vals.max()
+            
+                normalized_vals = metric_vals.apply(lambda x: normalize_value(x, mmin, mmax, better=('higher' if metric in higher_metrics else 'lower')))
+                radar_df['number'].update(normalized_vals[normalized_vals.notnull()])
 
-            for factor in factors:
-                max_val = df[factor].max()
-                min_val = df[factor].min()
-                val_range = max_val - min_val
-                df[factor + '_Adj'] = df[factor].apply(
-                    lambda x: (((x - min_val) * new_range) / val_range) + new_min
-                )
-
-            labels = ['cumulative_volume', 'daily_runtime', 'error_rate']
             pt = pd.pivot_table(radar_df, values='number', index=['metric'], columns=['method'])
             fig = plt.figure()
             ax = fig.add_subplot(111, projection="polar")
             theta = np.arange(len(pt))/float(len(pt))*2.*np.pi
             lines = []
             for i, method in enumerate(pt):
-                l, = ax.plot(theta, pt[method], color="C" + str(i + 1), marker="o", label=method)
+                color = "C" + str(i + 1)
+                l, = ax.plot(theta, pt[method], color=color, label=method, linewidth=1)
+                angles = np.linspace(0, 2 * np.pi, len(metrics), endpoint=False).tolist()
+                values = radar_df.where(radar_df['method'] == method)['number'].dropna().tolist()
+                ax.fill(angles, values, color=color, alpha=0.15)
                 lines.append(l)
 
             def _close_line(line):
@@ -148,12 +158,11 @@ def make_radar_chart(runs_scenarios_radar_data):
                 _close_line(l)
             ax.set_xticks(theta)
             ax.set_xticklabels(pt.index)
-            plt.legend()
-            plt.title('Foo')
+            ax.tick_params(axis='y', labelsize=8)
+            plt.legend(loc='lower right', bbox_to_anchor=(1.25, 0))
+            plt.title(f"Relative Performance for Scenario '{scenario}'")
+            print(run, scenario)
             plt.show()
-
-            print(radar_df)
-            input()
 
 
 
