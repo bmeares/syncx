@@ -400,11 +400,11 @@ def _binary_fetch(
 ######################################
 
 DEFAULT_BTI_INIT = datetime.timedelta(hours=1)
-DEFAULT_GROW_BTI_MAX = datetime.timedelta(hours=720)
+DEFAULT_GROW_BTI_MAX = datetime.timedelta(hours=768)
 DEFAULT_GROW_BTI_FACTOR = 1.4
 def _default_grow_bti(bti: datetime.timedelta) -> datetime.timedelta:
     """
-    Grow the BTI by 40% and cap at 720 hours.
+    Grow the BTI by 40% and cap at 768 hours.
     """
     return min(DEFAULT_GROW_BTI_FACTOR * bti, DEFAULT_GROW_BTI_MAX)
 
@@ -448,7 +448,7 @@ def _unbounded_dynamic_iterative_simple_sync(
     :param grow_bti:
         Function to grow `bti` between iterations.
         If `grow_bti` is False, do not increase `bti`.
-        Defaults to a 40% increase with a cap of 720 hours.
+        Defaults to a 40% increase with a cap of 768 hours.
     """
     return _generic_iterate_sync(pipe, with_extras=with_extras, debug=debug, **kw)
 
@@ -479,12 +479,12 @@ def _bounded_dynamic_iterative_simple_sync(
     ):
     """
     Iterative across the pipe's interval and perform a simple on each interval.
-    Stop iterating past 720 hours.
+    Stop iterating past 768 hours.
     """
     return _generic_iterate_sync(
         pipe,
         fetch_function = _simple_fetch,
-        max_traversal_interval = datetime.timedelta(hours=720),
+        max_traversal_interval = datetime.timedelta(hours=768),
         with_extras = with_extras,
         debug = debug,
     )
@@ -497,12 +497,12 @@ def _bounded_static_iterative_simple_sync(
     ):
     """
     Iterative across the pipe's interval and perform a simple on each interval.
-    Stop iterating past 720 hours.
+    Stop iterating past 768 hours.
     """
     return _generic_iterate_sync(
         pipe,
         fetch_function = _simple_fetch,
-        max_traversal_interval = datetime.timedelta(hours=720),
+        max_traversal_interval = datetime.timedelta(hours=768),
         bti = datetime.timedelta(hours=24),
         grow_bti = False,
         with_extras = with_extras,
@@ -606,6 +606,57 @@ def _simple_monthly_flush_sync(
     Perform a simple sync but flush the pipe (naive sync) at the beginning of every month.
     """
     return _generic_monthly_sync(pipe, with_extras=with_extras, debug=debug)
+
+def _simple_monthly_bounded_dynamic_simple_sync(
+        pipe: Pipe,
+        with_extras: bool = False,
+        debug: bool = False,
+        **kw
+    ):
+    """
+    Perform a simple sync but flush the pipe (naive sync) at the beginning of every month.
+    """
+    return _generic_monthly_sync(
+        pipe,
+        monthly_sync_function = _bounded_dynamic_iterative_simple_sync,
+        with_extras = with_extras,
+        debug = debug,
+    )
+
+def _simple_monthly_bounded_dynamic_cpi_sync(
+        pipe: Pipe,
+        with_extras: bool = False,
+        debug: bool = False,
+        **kw
+    ):
+    """
+    Perform a simple sync but flush the pipe (naive sync) at the beginning of every month.
+    """
+    return _generic_monthly_sync(
+        pipe,
+        monthly_sync_function = _bounded_dynamic_iterative_cpi_sync,
+        with_extras = with_extras,
+        debug = debug,
+    )
+
+
+def _simple_monthly_bounded_dynamic_binary_sync(
+        pipe: Pipe,
+        with_extras: bool = False,
+        debug: bool = False,
+        **kw
+    ):
+    """
+    Perform a simple sync but flush the pipe (naive sync) at the beginning of every month.
+    """
+    return _generic_monthly_sync(
+        pipe,
+        monthly_sync_function = _bounded_dynamic_iterative_binary_sync,
+        with_extras = with_extras,
+        debug = debug,
+    )
+
+
 
 def _simple_monthly_unbounded_dynamic_iterative_cpi_sync(
         pipe: Pipe,
@@ -787,13 +838,13 @@ def _bounded_dynamic_iterative_cpi_sync(
     ):
     """
     Iterative across the pipe's interval and perform CPISync on each interval.
-    Stop iterating past 720 hours.
+    Stop iterating past 768 hours.
     """
     return _generic_iterate_sync(
         pipe,
         fetch_function = _cpi_fetch,
         check_existing = False,
-        max_traversal_interval = datetime.timedelta(hours=720),
+        max_traversal_interval = datetime.timedelta(hours=768),
         with_extras = with_extras,
         debug = debug,
     )
@@ -806,7 +857,7 @@ def _bounded_static_iterative_cpi_sync(
     ):
     """
     Iterative across the pipe's interval and perform CPISync on each interval.
-    Stop iterating past 720 hours.
+    Stop iterating past 768 hours.
     Use a static BTI of 24 hours.
     """
     return _generic_iterate_sync(
@@ -815,7 +866,7 @@ def _bounded_static_iterative_cpi_sync(
         check_existing = False,
         bti = datetime.timedelta(hours=24),
         grow_bti = False,
-        max_traversal_interval = datetime.timedelta(hours=720),
+        max_traversal_interval = datetime.timedelta(hours=768),
         with_extras = with_extras,
         debug = debug,
     )
@@ -852,7 +903,7 @@ def _bounded_dynamic_iterative_binary_sync(
         fetch_function = _binary_fetch,
         check_existing = True,
         with_extras = with_extras,
-        max_traversal_interval = datetime.timedelta(hours=720),
+        max_traversal_interval = datetime.timedelta(hours=768),
         debug = debug,
     )
 
@@ -891,7 +942,7 @@ def _bounded_static_iterative_binary_sync(
         with_extras = with_extras,
         bti = datetime.timedelta(hours=24),
         grow_bti = False,
-        max_traversal_interval = datetime.timedelta(hours=720),
+        max_traversal_interval = datetime.timedelta(hours=768),
         debug = debug,
     )
 
@@ -912,6 +963,9 @@ sync_methods = {
     'simple-monthly-naive': _simple_monthly_flush_sync,
     'simple-monthly-cpi':  _simple_monthly_unbounded_dynamic_iterative_cpi_sync,
     'simple-monthly-binary':  _simple_monthly_unbounded_dynamic_iterative_binary_sync,
+    'simple-monthly-bounded-simple': _simple_monthly_bounded_dynamic_simple_sync,
+    'simple-monthly-bounded-cpi':  _simple_monthly_bounded_dynamic_cpi_sync,
+    'simple-monthly-bounded-binary':  _simple_monthly_bounded_dynamic_binary_sync,
     'daily-rowcount': _rowcount_sync,
     'unbounded-dynamic-iterative-cpi': _unbounded_dynamic_iterative_cpi_sync,
     'unbounded-static-iterative-cpi': _unbounded_dynamic_iterative_cpi_sync,
@@ -920,4 +974,11 @@ sync_methods = {
     'unbounded-dynamic-iterative-binary': _unbounded_dynamic_iterative_binary_sync,
     'unbounded-static-iterative-binary': _unbounded_static_iterative_binary_sync,
     'bounded-static-iterative-binary': _bounded_static_iterative_binary_sync,
+    'unbounded-simple': _unbounded_dynamic_iterative_simple_sync,
+    'unbounded-cpi': _unbounded_dynamic_iterative_cpi_sync,
+    'unbounded-binary': _unbounded_dynamic_iterative_binary_sync,
+    'bounded-simple': _bounded_dynamic_iterative_simple_sync,
+    'bounded-cpi': _bounded_dynamic_iterative_cpi_sync,
+    'bounded-binary': _bounded_dynamic_iterative_binary_sync,
+
 }
