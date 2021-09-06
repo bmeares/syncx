@@ -53,11 +53,11 @@ for i in "${@}"; do
         else
           python $SYNCX_DIR/add_to_csv.py $old_csv_path $new_csv_path
         fi
-
-        echo "Cooldown! Sleeping for $COOLDOWN seconds."
-        sleep $COOLDOWN
-
       done
+
+      echo "Cooldown! Sleeping for $COOLDOWN seconds."
+      sleep $COOLDOWN
+
     done
   done
 done
