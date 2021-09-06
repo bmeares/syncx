@@ -15,7 +15,7 @@ DATASETS=("cumulative_volume" "daily_runtime" "daily_volume" "error_rate" "error
 RUNS=("00_baseline" "01_simples" "02_iteratives" "03_correctives")
 STRATS=(
   ### Baseline
-  "simple simple-backtrack"
+  "simple naive"
 
   ### Simples
   "simple-backtrack simple-slow-id append join"
