@@ -11,6 +11,7 @@ import sys
 import pathlib
 
 methods_colors = {}
+methods_linestyles = {}
 
 def main(argv):
     from meerschaum.config._patch import apply_patch_to_config
@@ -53,8 +54,9 @@ def main(argv):
     #  methods_total_x_times = {method: [] for method in methods}
 
 
+    master_runs_data = {}
     runs_scenarios_radar_data = {}
-    for run in os.listdir(results_dir_path):
+    for run in sorted(os.listdir(results_dir_path)):
         run_dir_path = results_dir_path / run
         if run.startswith('.') or not os.path.isdir(run_dir_path):
             continue
@@ -62,7 +64,6 @@ def main(argv):
             runs_scenarios_radar_data[run] = {}
         scenarios_radar_data = runs_scenarios_radar_data[run]
         for dataset, dtypes in datasets_dtypes.items():
-            scenarios_dfs = []
             totals_dfs = []
 
             scenarios_dir_path = run_dir_path / 'scenarios'
@@ -75,7 +76,9 @@ def main(argv):
                 csv_file_path = scenario_path / 'csv' / (scenario + '_' + dataset + '.csv')
                 _df = pd.read_csv(csv_file_path, index_col=0)
                 df = _df.astype({col: val for col, val in dtypes.items() if col in _df})
-                scenarios_dfs.append(df)
+                for col in df:
+                    if col not in master_runs_data:
+                        master_runs_data[col] = df[col]
                 _total_df = pd.DataFrame({
                     col: {scenario: (
                         df[col].mean() if dataset == 'error_rate'
@@ -94,6 +97,16 @@ def main(argv):
                             "C" + str(len([m for m in methods_colors if m != 'naive']))
                         ) if method != 'naive' else '#555555'
                         methods_colors[method] = color
+                        num_methods = len(methods_colors)
+                        if num_methods <= 10:
+                            linestyle = 'solid'
+                        elif num_methods <= 20:
+                            linestyle = 'dashed'
+                        elif num_methods <= 30:
+                            linestyle = 'dotted'
+                        else:
+                            linestyle = 'dashdot'
+                        methods_linestyles[method] = linestyle
 
             all_totals_df = pd.concat(totals_dfs)
             all_totals_df.index.name = 'Scenario'
@@ -113,10 +126,26 @@ def main(argv):
             #  input()
 
     #  determine_bounds(runs_scenarios_radar_data)
+    make_line_chart(master_runs_data)
     make_radar_chart(runs_scenarios_radar_data)
     return 0
 
 scenarios_preset_metric_bounds = {}
+
+def make_line_chart(master_runs_data):
+    from meerschaum.utils.packages import import_pandas
+    pd = import_pandas()
+    master_df = pd.DataFrame(master_runs_data)
+    runs = {
+        'Baseline': ('simple', 'naive'),
+        'Simples': ('simple', 'simple-backtrack', 'simple-slow-id', 'append', 'join'),
+        'Iteratives': ('simple', 'daily-rowcount', 'unbounded-simple', 'unbounded-cpi', 'unbounded-binary', 'bounded-simple', 'bounded-cpi', 'bounded-binary'),
+        'Correctives': ('simple', 'simple-monthly-naive', 'simple-monthly-cpi', 'simple-monthly-binary', 'simple-monthly-bounded-simple', 'simple-monthly-bounded-cpi', 'simple-monthly-bounded-binary'),
+    }
+    print(master_df.columns)
+    print(master_df)
+    input()
+
 
 def normalize_value(value, min_value, max_value, better='higher'):
     if min_value == max_value and min_value == 100:
@@ -174,12 +203,15 @@ def make_radar_chart(runs_scenarios_radar_data):
             error_rate_df = radar_df.where(radar_df['metric'] == 'error_rate').dropna().sort_values(by='number').reset_index(drop=True)
             error_rate_pt = pd.pivot_table(error_rate_df, values='number', index=['metric'], columns=['method'])[error_rate_df['method']]
 
-            fig, (rt_ax, cv_ax, er_ax) = plt.subplots(1, 3, figsize=(30, 10))
+            fig, (rt_ax, cv_ax, er_ax) = plt.subplots(1, 3, figsize=(16, 8))
 
             daily_runtime_pt.plot(
                 kind='bar', title=f"Total Runtime for Scenario\n'{scenario}'", legend=False,
                 ylabel='Seconds', xlabel='',
                 color=[methods_colors.get(method, '#333333') for method in daily_runtime_pt],
+                edgecolor=['#333333' for method in daily_runtime_pt],
+                linestyle='solid',
+                #  linestyle=[methods_linestyles.get(method, 'dashdot') for method in daily_runtime_pt],
                 ax=rt_ax,
             )
             rt_ax.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
@@ -188,6 +220,8 @@ def make_radar_chart(runs_scenarios_radar_data):
                 kind='bar', title=f"Total Rows Fetched for Scenario\n'{scenario}'", legend=False,
                 ylabel='Rows', xlabel='',
                 color=[methods_colors.get(method, '#333333') for method in cumulative_volume_pt],
+                edgecolor=['#333333' for method in cumulative_volume_pt],
+                #  linestyle=[methods_linestyles.get(method, 'dashdot') for method in cumulative_volume_pt],
                 ax=cv_ax,
             )
             cv_ax.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
@@ -196,6 +230,8 @@ def make_radar_chart(runs_scenarios_radar_data):
                 kind='bar', title=f"Average Accuracy Rate for Scenario\n'{scenario}'", legend=False,
                 ylabel='% of Rows Sychronized', xlabel='',
                 color=[methods_colors.get(method, '#333333') for method in error_rate_pt],
+                edgecolor=['#333333' for method in daily_runtime_pt],
+                #  linestyle=[methods_linestyles.get(method, 'dashdot') for method in error_rate_pt],
                 ax=er_ax,
             )
             er_ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1))
