@@ -37,6 +37,23 @@ def _simple_fetch(pipe, debug: bool=False, **kw) -> Union['pd.DataFrame', None]:
         del pipe.parameters['fetch']['backtrack_minutes']
     return df
 
+def _simple_check_rowcount_fetch(
+        pipe,
+        begin: Optional[datetime.datetime] = None,
+        end: Optional[datetime.datetime] = None,
+        debug: bool=False, **kw
+    ):
+    """
+    Check the source and target rowcounts before fetching.
+    """
+    source_rowcount = pipe.connector.get_pipe_rowcount(pipe, remote=True, begin=begin, end=end, debug=debug)
+    target_rowcount = pipe.instance_connector.get_pipe_rowcount(pipe, begin=begin, end=end, debug=debug)
+    if source_rowcount == target_rowcount:
+        return None
+    if begin is None:
+        begin = pipe.get_sync_time(debug=debug)
+    return pipe.fetch(begin=begin, end=end, debug=debug)
+
 def _simple_backtrack_fetch(
         pipe,
         bti: Optional[datetime.timedelta] = None,
@@ -358,10 +375,10 @@ def _binary_fetch(
     )
     if source_rowcount == target_rowcount:
         return None
-    if target_rowcount == 0:
+    if target_rowcount == 0 or begin is None or end is None:
         return pipe.fetch(begin=begin, end=end, debug=debug)
 
-    threshold = datetime.timedelta(minutes=15)
+    threshold = datetime.timedelta(hours=24)
     intervals = []
     def find_intervals(_begin, _end):
         _target_rowcount = pipe.instance_connector.get_pipe_rowcount(
@@ -377,6 +394,8 @@ def _binary_fetch(
             return
 
         ### Recurse on the first half
+        if _begin is None or _end is None:
+            return
         _interval = _end - _begin
 
         if _interval < threshold:
@@ -450,7 +469,13 @@ def _unbounded_dynamic_iterative_simple_sync(
         If `grow_bti` is False, do not increase `bti`.
         Defaults to a 40% increase with a cap of 768 hours.
     """
-    return _generic_iterate_sync(pipe, with_extras=with_extras, debug=debug, **kw)
+    return _generic_iterate_sync(
+        pipe,
+        fetch_function = _simple_check_rowcount_fetch,
+        with_extras = with_extras,
+        debug = debug,
+        **kw
+    )
 
 def _unbounded_static_iterative_simple_sync(
         pipe: Pipe,
@@ -468,6 +493,7 @@ def _unbounded_static_iterative_simple_sync(
         grow_bti = False,
         bti = datetime.timedelta(hours=24),
         debug = debug,
+        fetch_function = _simple_check_rowcount_fetch,
         **kw
     )
 
@@ -483,8 +509,8 @@ def _bounded_dynamic_iterative_simple_sync(
     """
     return _generic_iterate_sync(
         pipe,
-        fetch_function = _simple_fetch,
         max_traversal_interval = datetime.timedelta(hours=768),
+        fetch_function = _simple_check_rowcount_fetch,
         with_extras = with_extras,
         debug = debug,
     )
@@ -501,7 +527,7 @@ def _bounded_static_iterative_simple_sync(
     """
     return _generic_iterate_sync(
         pipe,
-        fetch_function = _simple_fetch,
+        fetch_function = _simple_check_rowcount_fetch,
         max_traversal_interval = datetime.timedelta(hours=768),
         bti = datetime.timedelta(hours=24),
         grow_bti = False,
@@ -581,7 +607,7 @@ def _generic_iterate_sync(
         st = round_time(et - bti)
 
     ### Finally sync rows older than rt1 (only if a maximum interval is not provided).
-    if max_traversal_interval is not None:
+    if max_traversal_interval is None:
         fetched_df = fetch_function(pipe, end=rt1, debug=debug)
         if fetched_df is not None:
             filtered_df = pipe.filter_existing(fetched_df, chunksize=CHUNKSIZE, debug=debug) if check_existing else fetched_df
@@ -691,6 +717,40 @@ def _simple_monthly_unbounded_dynamic_iterative_binary_sync(
         debug = debug,
     )
 
+def _simple_monthly_unbounded_daily_rowcount_sync(
+        pipe: Pipe,
+        with_extras: bool = False,
+        debug: bool = False,
+        **kw
+    ):
+    """
+    Perform a simple sync but flush the pipe (naive sync) at the beginning of every month.
+    """
+    return _generic_monthly_sync(
+        pipe,
+        monthly_sync_function = _rowcount_sync,
+        with_extras = with_extras,
+        debug = debug,
+    )
+
+
+def _simple_monthly_bounded_daily_rowcount_sync(
+        pipe: Pipe,
+        with_extras: bool = False,
+        debug: bool = False,
+        **kw
+    ):
+    """
+    Perform a simple sync but flush the pipe (naive sync) at the beginning of every month.
+    """
+    return _generic_monthly_sync(
+        pipe,
+        monthly_sync_function = _bounded_rowcount_sync,
+        with_extras = with_extras,
+        debug = debug,
+    )
+
+
 
 def _generic_monthly_sync(
         pipe: Pipe,
@@ -730,14 +790,15 @@ def _generic_monthly_sync(
 
 def _rowcount_sync(
         pipe: Pipe,
+        max_traversal_interval: Optional[datetime.timedelta] = None,
         with_extras: bool = False,
         debug: bool = False,
         **kw
     ) -> Union[SuccessTuple, Tuple[SuccessTuple, 'pd.DataFrame']]:
     """
-    Count the daily rowcounts and only sync months with different rowcounts.
+    Count the daily rowcounts and only sync days with different rowcounts.
     """
-    from meerschaum.connectors.sql.tools import sql_item_name
+    from meerschaum.connectors.sql.tools import sql_item_name, dateadd_str
     from meerschaum.utils.misc import filter_unseen_df
     from meerschaum.utils.packages import import_pandas
     pd = import_pandas()
@@ -754,6 +815,9 @@ def _rowcount_sync(
         check_existing = False,
         debug = debug,
     )
+    begin = (
+        filtered_df[pipe.columns['datetime']].max().to_pydatetime() - max_traversal_interval
+    ) if max_traversal_interval is not None else None
 
     ### NOTE: This will need to be written for different flavors.
     ### See meerschaum.connectors.sql.tools.dateadd_str() for an example.
@@ -764,6 +828,7 @@ def _rowcount_sync(
       DATE_TRUNC('day', {sql_item_name(pipe.columns['datetime'], pipe.connector.flavor)}) AS days,
       COUNT(*) AS rowcount
     FROM definition
+    """ + (('WHERE ' + sql_item_name(pipe.columns['datetime'], pipe.connector.flavor) + f" > '{begin}'::TIMESTAMP") if begin is not None else '') + """
     GROUP BY days
     """
     target_query = f"""
@@ -771,6 +836,7 @@ def _rowcount_sync(
       DATE_TRUNC('day', {sql_item_name(pipe.columns['datetime'], pipe.instance_connector.flavor)}) AS days,
       COUNT(*) AS rowcount
     FROM {sql_item_name(str(pipe), pipe.instance_connector.flavor)}
+    """ + (('WHERE ' + sql_item_name(pipe.columns['datetime'], pipe.instance_connector.flavor) + f" > '{begin}'::TIMESTAMP") if begin is not None else '') + """
     GROUP BY days
     """
 
@@ -793,6 +859,12 @@ def _rowcount_sync(
     if with_extras:
         return success_tuple, pd.concat(new_dfs), pd.concat(fetched_dfs)
     return success_tuple
+
+def _bounded_rowcount_sync(pipe, **kw):
+    """
+    Daily rowcount sync with a max traversal interval of 768 hours.
+    """
+    return _rowcount_sync(pipe, max_traversal_interval=datetime.timedelta(hours=768), **kw)
 
 def _unbounded_dynamic_iterative_cpi_sync(
         pipe: Pipe,
@@ -966,7 +1038,10 @@ sync_methods = {
     'simple-monthly-bounded-simple': _simple_monthly_bounded_dynamic_simple_sync,
     'simple-monthly-bounded-cpi':  _simple_monthly_bounded_dynamic_cpi_sync,
     'simple-monthly-bounded-binary':  _simple_monthly_bounded_dynamic_binary_sync,
-    'daily-rowcount': _rowcount_sync,
+    'simple-monthly-daily-rowcount': _simple_monthly_unbounded_daily_rowcount_sync,
+    'simple-monthly-bounded-daily-rowcount': _simple_monthly_bounded_daily_rowcount_sync,
+    'unbounded-daily-rowcount': _rowcount_sync,
+    'bounded-daily-rowcount': _bounded_rowcount_sync,
     'unbounded-dynamic-iterative-cpi': _unbounded_dynamic_iterative_cpi_sync,
     'unbounded-static-iterative-cpi': _unbounded_dynamic_iterative_cpi_sync,
     'bounded-dynamic-iterative-cpi': _bounded_dynamic_iterative_cpi_sync,

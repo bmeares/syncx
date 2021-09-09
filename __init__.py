@@ -12,7 +12,7 @@ from meerschaum.utils.typing import Optional, Any, List, SuccessTuple
 from collections import namedtuple
 ErrorRow = namedtuple('ErrorRow', ('scenario', 'method', 'error'))
 
-__version__ = '0.1.1'
+__version__ = '0.1.2'
 required = [
     'numpy', 'prime-sieve', 'dateutil', 'galois', 'matplotlib', 'duckdb',
 ]
@@ -173,15 +173,11 @@ def scenarios(
             dvl_figure_df = dvl_figure_df.merge(_df)
 
         max_drt = max(drt_figure_df[run_sync_methods].max())
-        #  min_rt = min(rt_figure_df[run_sync_methods].min())
         max_rt = max(rt_figure_df[run_sync_methods].max())
-        #  min_er = min(er_figure_df[run_sync_methods].min())
         max_er = max(er_figure_df[run_sync_methods].max())
         min_rer = max(min(rer_figure_df[run_sync_methods].min()) - 10, 0)
         max_rer = min(max(rer_figure_df[run_sync_methods].max()), 100)
-        #  min_vl = min(vl_figure_df[run_sync_methods].min())
         max_vl = max(vl_figure_df[run_sync_methods].max())
-        #  min_dvl = min(dvl_figure_df[run_sync_methods].min())
         max_dvl = max(dvl_figure_df[run_sync_methods].max())
 
         ### Create one figure per scenario with all of the methods.

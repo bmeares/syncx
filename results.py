@@ -32,8 +32,8 @@ def main(argv):
     datasets_methods_dtypes = {
         'cumulative_volume': int,
         'daily_runtime': float,
-        #  'daily_volume': int,
-        'error_rate': int,
+        'daily_volume': int,
+        'error_rate': float,
         #  'monthly_runtime': float,
     }
     readable_dataset_names = {
@@ -64,10 +64,14 @@ def main(argv):
             runs_scenarios_radar_data[run] = {}
         scenarios_radar_data = runs_scenarios_radar_data[run]
         for dataset, dtypes in datasets_dtypes.items():
+            if dataset not in master_runs_data:
+                master_runs_data[dataset] = {}
             totals_dfs = []
 
             scenarios_dir_path = run_dir_path / 'scenarios'
             for scenario in os.listdir(scenarios_dir_path):
+                if scenario not in master_runs_data[dataset]:
+                    master_runs_data[dataset][scenario] = {}
                 scenario_path = scenarios_dir_path / scenario
                 if scenario.startswith('.') or not os.path.isdir(scenario_path):
                     continue
@@ -77,8 +81,8 @@ def main(argv):
                 _df = pd.read_csv(csv_file_path, index_col=0)
                 df = _df.astype({col: val for col, val in dtypes.items() if col in _df})
                 for col in df:
-                    if col not in master_runs_data:
-                        master_runs_data[col] = df[col]
+                    if col not in master_runs_data[dataset][scenario]:
+                        master_runs_data[dataset][scenario][col] = df[col]
                 _total_df = pd.DataFrame({
                     col: {scenario: (
                         df[col].mean() if dataset == 'error_rate'
@@ -134,17 +138,131 @@ scenarios_preset_metric_bounds = {}
 
 def make_line_chart(master_runs_data):
     from meerschaum.utils.packages import import_pandas
+    import matplotlib.pyplot as plt
+    import matplotlib.dates as mdates
     pd = import_pandas()
-    master_df = pd.DataFrame(master_runs_data)
     runs = {
-        'Baseline': ('simple', 'naive'),
-        'Simples': ('simple', 'simple-backtrack', 'simple-slow-id', 'append', 'join'),
-        'Iteratives': ('simple', 'daily-rowcount', 'unbounded-simple', 'unbounded-cpi', 'unbounded-binary', 'bounded-simple', 'bounded-cpi', 'bounded-binary'),
-        'Correctives': ('simple', 'simple-monthly-naive', 'simple-monthly-cpi', 'simple-monthly-binary', 'simple-monthly-bounded-simple', 'simple-monthly-bounded-cpi', 'simple-monthly-bounded-binary'),
+        'Baseline': ['simple', 'naive'],
+        'Simples': ['simple', 'simple-backtrack', 'simple-slow-id', 'append', 'join'],
+        'Iteratives': ['simple', 'daily-rowcount', 'unbounded-cpi', 'unbounded-binary', 'bounded-cpi', 'bounded-binary'],
+        'Correctives': ['simple', 'simple-monthly-naive', 'simple-monthly-cpi', 'simple-monthly-binary', 'simple-monthly-bounded-simple', 'simple-monthly-bounded-cpi', 'simple-monthly-bounded-binary'],
     }
-    print(master_df.columns)
-    print(master_df)
-    input()
+    #  runs['All'] = runs['Baseline'] + runs['Simples'] + runs['Iteratives'] + runs['Correctives']
+
+    for run, strategies in runs.items():
+
+        for scenario in master_runs_data['error_rate']:
+
+            missing = False
+            for strat in strategies:
+                if strat not in master_runs_data['daily_runtime'][scenario]:
+                    missing = True
+            if missing:
+                continue
+            drt_df = pd.DataFrame(master_runs_data['daily_runtime'][scenario])[['Datetime'] + strategies]
+            #  rt_df = pd.DataFrame(master_runs_data['monthly_runtime'])
+            #  er_df = pd.DataFrame(master_runs_data['errors'])
+            rer_df = pd.DataFrame(master_runs_data['error_rate'][scenario])[['Datetime'] + strategies]
+            vl_df = pd.DataFrame(master_runs_data['cumulative_volume'][scenario])[['Datetime'] + strategies]
+            dvl_df = pd.DataFrame(master_runs_data['daily_volume'][scenario])[['Datetime'] + strategies]
+            max_drt = max(drt_df[strategies].max())
+            #  max_rt = max(rt_df[strategies].max())
+            #  max_er = max(er_df[strategies].max())
+            min_rer = max(min(rer_df[strategies].min()) - 10, 0)
+            max_rer = min(max(rer_df[strategies].max()), 100)
+            max_vl = max(vl_df[strategies].max())
+            max_dvl = max(dvl_df[strategies].max())
+
+            ### Build a 4x4 graph
+            fig, axs = plt.subplots(2, 2, figsize=(16, 9))
+            plt.subplots_adjust(left=0.1, bottom=0.1, right=0.85, top=0.9, wspace=0.2, hspace=0.5)
+            #  fig.tight_layout(h_pad=4)
+            drt_ax = axs[0, 0]
+            dvl_ax = axs[0, 1]
+            vl_ax = axs[1, 0]
+            rer_ax = axs[1, 1]
+
+            ### Create one figure per scenario with all of the methods.
+            drt_df.plot(
+                x = 'Datetime',
+                color = [methods_colors.get(method, '#333333') for method in drt_df][1:],
+                ax = drt_ax,
+                legend = False,
+            )
+            drt_ax.set_ylim([0.0, max_drt + 0.1])
+            plt.ylabel("Seconds")
+            drt_ax.set_title(f"Daily Runtimes of Scenario\n'{scenario}'")
+            #  drt_df.to_csv(csv_path / (scenario_name + '_daily_runtime.csv'))
+            #  plt.savefig(figures_path / (scenario_name + '_daily_runtime.png'), bbox_inches="tight")
+
+            #  rt_ax = rt_figure_df.plot(x='Month')
+            #  rt_ax.set_ylim([0.0, max_rt + 0.1])
+            #  plt.ylabel("Seconds")
+            #  rt_ax.set_title(f"Monthly Average Runtimes of Scenario\n'{scenario_name}'")
+            #  rt_df.to_csv(csv_path / (scenario_name + '_monthly_runtime.csv'))
+            #  plt.savefig(figures_path / (scenario_name + '_monthly_runtime.png'), bbox_inches="tight")
+
+            #  er_ax = er_df.plot(
+                #  x = 'Datetime',
+                #  kind = 'line',
+                #  color = [methods_colors.get(method, '#333333') for method in er_df],
+            #  )
+            #  er_ax.set_ylim([0.0, max_er + 10])
+            #  er_ax.xaxis.set_major_locator(mdates.MonthLocator())
+            #  er_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+            #  plt.ylabel("Missing Rows")
+            #  er_ax.set_title(f"Cumulative Errors of Scenario\n '{scenario_name}'")
+            #  er_df.to_csv(csv_path / (scenario_name + '_errors.csv'))
+            #  plt.savefig(figures_path / (scenario_name + '_errors.png'), bbox_inches="tight")
+
+            rer_df.plot(
+                x = 'Datetime',
+                kind = 'line',
+                color = [methods_colors.get(method, '#333333') for method in rer_df][1:],
+                ax = rer_ax,
+                legend = False,
+            )
+            rer_ax.set_ylim([min_rer, max_rer + 1])
+            rer_ax.xaxis.set_major_locator(mdates.MonthLocator())
+            rer_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+            plt.ylabel("Accuracy Percentage")
+            rer_ax.set_title(f"Running Accuracy Rate of Scenario\n'{scenario}'")
+            #  rer_df.to_csv(csv_path / (scenario_name + '_error_rate.csv'))
+            #  plt.savefig(figures_path / (scenario_name + '_error_rate.png'), bbox_inches="tight")
+
+
+            vl_df.plot(
+                x ='Datetime',
+                kind = 'line',
+                color = [methods_colors.get(method, '#333333') for method in vl_df][1:],
+                ax = vl_ax,
+                legend = False,
+            )
+            vl_ax.set_ylim([0, max_vl + 10])
+            vl_ax.xaxis.set_major_locator(mdates.MonthLocator())
+            vl_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+            plt.ylabel("Rows Transferred")
+            vl_ax.set_title(f"Cumulative Fetched Row Volume of Scenario\n'{scenario}'")
+            #  vl_figure_df.to_csv(csv_path / (scenario_name + '_cumulative_volume.csv'))
+            #  plt.savefig(figures_path / (scenario_name + '_cumulative_volume.png'), bbox_inches="tight")
+
+            dvl_df.plot(
+                x = 'Datetime',
+                kind = 'line',
+                color = [methods_colors.get(method, '#333333') for method in dvl_df][1:],
+                ax = dvl_ax,
+                legend = False,
+            )
+            dvl_ax.set_ylim([0, max_dvl + 10])
+            dvl_ax.xaxis.set_major_locator(mdates.MonthLocator())
+            dvl_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+            plt.ylabel("Rows Transferred")
+            dvl_ax.set_title(f"Daily Fetched Row Volume of Scenario\n'{scenario}'")
+            dvl_ax.legend(loc='upper right', bbox_to_anchor=(1.35, 1))
+            #  dvl_figure_df.to_csv(csv_path / (scenario_name + '_daily_volume.csv'))
+            #  plt.savefig(figures_path / (scenario_name + '_daily_volume.png'), bbox_inches="tight")
+
+            plt.show()
 
 
 def normalize_value(value, min_value, max_value, better='higher'):
@@ -251,6 +369,8 @@ def make_radar_chart(runs_scenarios_radar_data):
 
             metrics = radar_df['metric'].unique()
             for metric in metrics:
+                if metric not in metric_bounds:
+                    continue
                 metric_vals = radar_df.where(radar_df['metric'] == metric)['number']
                 #  _mmin, _mmax = metric_vals.min(), metric_vals.max()
                 #  mmin, mmax = scenarios_preset_metric_bounds[scenario][metric]
