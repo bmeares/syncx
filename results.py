@@ -12,20 +12,31 @@ import pathlib
 
 methods_colors = {}
 methods_linestyles = {}
+methods_markers = {}
 runs = {
     'Baseline': ['simple', 'naive'],
     'Simples': ['simple', 'simple-backtrack', 'simple-slow-id', 'append', 'join'],
-    'Iteratives': [
-        'simple', 'unbounded-daily-rowcount', 'unbounded-simple', 'unbounded-cpi',
-        'unbounded-binary', 'bounded-daily-rowcount', 'bounded-simple', 'bounded-cpi',
-        'bounded-binary'
+    #  'Iteratives': [
+        #  'simple', 'unbounded-daily-rowcount', 'unbounded-simple', 'unbounded-cpi',
+        #  'unbounded-binary', 'bounded-daily-rowcount', 'bounded-simple', 'bounded-cpi',
+        #  'bounded-binary'
+    #  ],
+    'Unbounded': [
+        'simple', 'unbounded-simple', 'unbounded-daily-rowcount', 'unbounded-binary', 'unbounded-cpi',
     ],
-    'Correctives': [
-        'simple', 'simple-monthly-naive', 'simple-monthly-daily-rowcount', 'simple-monthly-cpi',
-        'simple-monthly-binary', 'simple-monthly-bounded-simple',
-        'simple-monthly-bounded-daily-rowcount', 'simple-monthly-bounded-cpi',
-        'simple-monthly-bounded-binary',
+    'Bounded': [
+        'simple', 'bounded-simple', 'bounded-daily-rowcount', 'bounded-binary', 'bounded-cpi',
     ],
+    'Unbounded Correctives': [
+        'simple', 'simple-monthly-naive', 'simple-monthly-daily-rowcount', 'simple-monthly-binary', 'simple-monthly-cpi',
+    ],
+    'Bounded Correctives': ['simple', 'simple-monthly-bounded-simple', 'simple-monthly-bounded-daily-rowcount', 'simple-monthly-bounded-binary', 'simple-monthly-bounded-cpi'],
+    #  'Correctives': [
+        #  'simple', 'simple-monthly-naive', 'simple-monthly-daily-rowcount', 'simple-monthly-cpi',
+        #  'simple-monthly-binary', 'simple-monthly-bounded-simple',
+        #  'simple-monthly-bounded-daily-rowcount', 'simple-monthly-bounded-cpi',
+        #  'simple-monthly-bounded-binary',
+    #  ],
 }
 
 
@@ -113,16 +124,22 @@ def main(argv):
                     scenarios_radar_data[scenario]['metric'].append(dataset)
                     scenarios_radar_data[scenario]['number'].append(_total_df[method][0])
                     if method not in methods_colors:
-                        color = (
-                            "C" + str(len([m for m in methods_colors if m != 'naive']))
-                        ) if method != 'naive' else '#555555'
+                        #  color = (
+                            #  "C" + str(len([m for m in methods_colors if m != 'naive']))
+                        #  ) if method != 'naive' else '#555555'
+                        #  colors = ['#e6194B', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#fabed4', '#469990', '#dcbeff', '#9A6324', '#fffac8', '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#a9a9a9', '#ffffff', '#000000']
+                        colors = ['blue', 'black', 'orange', 'red', 'cyan', 'gold', 'green', 'purple', 'teal', 'deeppink', 'steelblue', 'olive', 'tan', 'springgreen']
+                        color = colors[len(methods_colors) % len(colors)]
                         methods_colors[method] = color
+                        markers = ['s', 'o', 'v', 'x', '^', 'D', '*', 'd']
+                        marker = markers[len(methods_colors) % len(markers)]
+                        methods_markers[method] = marker
                         num_methods = len(methods_colors)
-                        if num_methods <= 10:
+                        if num_methods <= len(colors):
                             linestyle = 'solid'
-                        elif num_methods <= 20:
+                        elif num_methods <= 2 * len(colors):
                             linestyle = 'dashed'
-                        elif num_methods <= 30:
+                        elif num_methods <= 3 * len(colors):
                             linestyle = 'dotted'
                         else:
                             linestyle = 'dashdot'
@@ -145,7 +162,7 @@ def main(argv):
             #  )
             #  input()
 
-    #  make_line_chart(master_runs_data)
+    make_line_chart(master_runs_data)
     make_radar_chart(make_radar_data(runs_scenarios_radar_data))
     return 0
 
@@ -223,7 +240,8 @@ def make_line_chart(master_runs_data):
 
             ### Build a 4x4 graph
             fig, axs = plt.subplots(2, 2, figsize=(16, 9))
-            plt.subplots_adjust(left=0.1, bottom=0.1, right=0.85, top=0.9, wspace=0.2, hspace=0.5)
+            #  fig.subplots_adjust(right=0.2)
+            plt.subplots_adjust(left=0.1, bottom=0.1, right=0.83, top=0.9, wspace=0.2, hspace=0.5)
             #  fig.tight_layout(h_pad=4)
             drt_ax = axs[0, 0]
             dvl_ax = axs[0, 1]
@@ -237,6 +255,16 @@ def make_line_chart(master_runs_data):
                 ax = drt_ax,
                 legend = False,
             )
+
+            def _set_line_markers(_ax, _df):
+                lines = _ax.get_lines()
+                methods = list(_df.columns)[1:]
+                for line, method in zip(lines, methods):
+                    line.set_marker(methods_markers.get(method, '+'))
+                    line.set_markevery(30)
+                    line.set_linestyle(methods_linestyles.get(method, 'dotted'))
+
+            _set_line_markers(drt_ax, drt_df)
             drt_ax.set_ylim([0.0, max_drt + 0.1])
             plt.ylabel("Seconds")
             drt_ax.set_title(f"Daily Runtimes of Scenario\n'{scenario}'")
@@ -270,6 +298,7 @@ def make_line_chart(master_runs_data):
                 ax = rer_ax,
                 legend = False,
             )
+            _set_line_markers(rer_ax, rer_df)
             rer_ax.set_ylim([min_rer, max_rer + 1])
             rer_ax.xaxis.set_major_locator(mdates.MonthLocator())
             rer_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
@@ -286,7 +315,8 @@ def make_line_chart(master_runs_data):
                 ax = vl_ax,
                 legend = False,
             )
-            vl_ax.set_ylim([0, max_vl + 10])
+            _set_line_markers(vl_ax, vl_df)
+            vl_ax.set_ylim([0, int(max_vl * 1.02)])
             vl_ax.xaxis.set_major_locator(mdates.MonthLocator())
             vl_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
             plt.ylabel("Rows Transferred")
@@ -301,7 +331,8 @@ def make_line_chart(master_runs_data):
                 ax = dvl_ax,
                 legend = False,
             )
-            dvl_ax.set_ylim([0, max_dvl + 10])
+            _set_line_markers(dvl_ax, dvl_df)
+            dvl_ax.set_ylim([0, int(max_dvl * 1.05)])
             dvl_ax.xaxis.set_major_locator(mdates.MonthLocator())
             dvl_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
             plt.ylabel("Rows Transferred")
@@ -371,6 +402,7 @@ def make_radar_chart(runs_scenarios_radar_data):
             error_rate_pt = pd.pivot_table(error_rate_df, values='number', index=['metric'], columns=['method'])[error_rate_df['method']]
 
             fig, (rt_ax, cv_ax, er_ax) = plt.subplots(1, 3, figsize=(16, 8))
+            fig.subplots_adjust(bottom=0.2)
 
             daily_runtime_pt.plot(
                 kind='bar', title=f"Total Runtime for Scenario\n'{scenario}'", legend=False,
@@ -403,7 +435,7 @@ def make_radar_chart(runs_scenarios_radar_data):
             )
             #  er_ax.legend(bbox_to_anchor=(0., 1.02, 1., .102), loc='lower left',
                                #  ncol=2, borderaxespad=0.)
-            er_ax.legend(loc='lower right', ncol=2, bbox_to_anchor=(1., 0.))
+            er_ax.legend(loc='lower right', ncol=3, bbox_to_anchor=(1., -0.2))
             er_ax.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
             er_ax.set_ylim(0, 100)
 
