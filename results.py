@@ -38,6 +38,9 @@ runs = {
         #  'simple-monthly-bounded-binary',
     #  ],
 }
+runs['All'] = []
+for run, strats in runs.items():
+    runs['All'] += [strat for strat in strats if strat not in runs['All']]
 
 
 def main(argv):
@@ -128,7 +131,7 @@ def main(argv):
                             #  "C" + str(len([m for m in methods_colors if m != 'naive']))
                         #  ) if method != 'naive' else '#555555'
                         #  colors = ['#e6194B', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#fabed4', '#469990', '#dcbeff', '#9A6324', '#fffac8', '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#a9a9a9', '#ffffff', '#000000']
-                        colors = ['blue', 'dimgrey', 'orange', 'red', 'cyan', 'gold', 'green', 'purple', 'teal', 'deeppink', 'steelblue', 'darkgreen', 'tan', 'springgreen', 'cadetblue', 'mediumorchid', 'midnightblue', 'mediumvioletred']
+                        colors = ['blue', 'dimgrey', 'orange', 'red', 'cyan', 'gold', 'green', 'purple', 'teal', 'deeppink', 'steelblue', 'darkgreen', 'tan', 'springgreen', 'cadetblue', 'mediumorchid', 'midnightblue', 'mediumvioletred', 'coral', 'darkslategrey', 'yellowgreen', 'lightsteelblue', 'tomato', 'plum', 'chocolate']
                         color = colors[len(methods_colors) % len(colors)]
                         methods_colors[method] = color
                         markers = ['s', 'o', 'v', 'x', '^', 'D', '*', 'd']
@@ -162,7 +165,7 @@ def main(argv):
             #  )
             #  input()
 
-    #  make_line_chart(master_runs_data)
+    make_line_chart(master_runs_data)
     make_radar_chart(make_radar_data(runs_scenarios_radar_data))
     return 0
 
@@ -252,7 +255,7 @@ def make_line_chart(master_runs_data):
             ### Build a 4x4 graph
             fig, axs = plt.subplots(2, 2, figsize=(16, 9))
             #  fig.subplots_adjust(right=0.2)
-            plt.subplots_adjust(left=0.1, bottom=0.1, right=0.83, top=0.9, wspace=0.2, hspace=0.5)
+            plt.subplots_adjust(left=0.1, bottom=0.1, right=0.78, top=0.9, wspace=0.2, hspace=0.5)
             #  fig.tight_layout(h_pad=4)
             drt_ax = axs[0, 0]
             dvl_ax = axs[0, 1]
@@ -271,28 +274,6 @@ def make_line_chart(master_runs_data):
             drt_ax.set_ylim([0.0, max_drt + 0.1])
             drt_ax.set_ylabel("Seconds")
             drt_ax.set_title(f"Daily Runtimes of Scenario\n'{scenario}'")
-            #  drt_df.to_csv(csv_path / (scenario_name + '_daily_runtime.csv'))
-            #  plt.savefig(figures_path / (scenario_name + '_daily_runtime.png'), bbox_inches="tight")
-
-            #  rt_ax = rt_figure_df.plot(x='Month')
-            #  rt_ax.set_ylim([0.0, max_rt + 0.1])
-            #  plt.ylabel("Seconds")
-            #  rt_ax.set_title(f"Monthly Average Runtimes of Scenario\n'{scenario_name}'")
-            #  rt_df.to_csv(csv_path / (scenario_name + '_monthly_runtime.csv'))
-            #  plt.savefig(figures_path / (scenario_name + '_monthly_runtime.png'), bbox_inches="tight")
-
-            #  er_ax = er_df.plot(
-                #  x = 'Datetime',
-                #  kind = 'line',
-                #  color = [methods_colors.get(method, '#333333') for method in er_df],
-            #  )
-            #  er_ax.set_ylim([0.0, max_er + 10])
-            #  er_ax.xaxis.set_major_locator(mdates.MonthLocator())
-            #  er_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
-            #  plt.ylabel("Missing Rows")
-            #  er_ax.set_title(f"Cumulative Errors of Scenario\n '{scenario_name}'")
-            #  er_df.to_csv(csv_path / (scenario_name + '_errors.csv'))
-            #  plt.savefig(figures_path / (scenario_name + '_errors.png'), bbox_inches="tight")
 
             rer_df.plot(
                 x = 'Datetime',
@@ -340,7 +321,7 @@ def make_line_chart(master_runs_data):
             dvl_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
             dvl_ax.set_ylabel("Rows Transferred")
             dvl_ax.set_title(f"Daily Fetched Row Volume of Scenario\n'{scenario}'")
-            dvl_ax.legend(loc='upper right', bbox_to_anchor=(1.4, 1))
+            dvl_ax.legend(loc='upper left', bbox_to_anchor=(1.0, 1))
             #  dvl_figure_df.to_csv(csv_path / (scenario_name + '_daily_volume.csv'))
             #  plt.savefig(figures_path / (scenario_name + '_daily_volume.png'), bbox_inches="tight")
 
@@ -430,7 +411,7 @@ def make_radar_chart(runs_scenarios_radar_data):
 
             error_rate_pt.plot(
                 kind='bar', title=f"Average Accuracy Rate for Scenario\n'{scenario}'", legend=False,
-                ylabel='% of Rows Sychronized', xlabel='',
+                ylabel='Accuracy Percentage', xlabel='',
                 color=[methods_colors.get(method, '#333333') for method in error_rate_pt],
                 edgecolor=['#333333' for method in daily_runtime_pt],
                 #  linestyle=[methods_linestyles.get(method, 'dashdot') for method in error_rate_pt],
@@ -467,7 +448,7 @@ def make_radar_chart(runs_scenarios_radar_data):
                 radar_df['number'].update(normalized_vals[normalized_vals.notnull()])
 
             pt = pd.pivot_table(radar_df, values='number', index=['metric'], columns=['method'])
-            fig = plt.figure()
+            fig = plt.figure(figsize=(12, 8))
             ax = fig.add_subplot(111, projection="polar")
             theta = np.arange(len(pt))/float(len(pt))*2.*np.pi
             lines = []
@@ -490,14 +471,13 @@ def make_radar_chart(runs_scenarios_radar_data):
                 l.set_markevery(((i / len(lines)) / 10, 0.1))
                 l.set_linestyle(methods_linestyles.get(method, 'dotted'))
 
-
-
             ax.set_xticks(theta)
             ax.set_xticklabels(pt.index)
             ax.tick_params(axis='y', labelsize=8)
             ax.tick_params(axis='x', labelsize=8)
             ax.set_xticklabels(['        Bandwidth', 'Runtime', 'Accuracy'])
-            plt.legend(loc='lower right', bbox_to_anchor=(1.25, 0))
+            plt.subplots_adjust(top=0.9, bottom=0.05, right=0.65, left=0.05, hspace=0, wspace=0)
+            plt.legend(loc='upper left', bbox_to_anchor=(1.1, 1.0))
             plt.title(f"Relative Performance for Scenario\n'{scenario}'")
             print(run, scenario)
             plt.show()
