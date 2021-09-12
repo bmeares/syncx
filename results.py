@@ -128,7 +128,7 @@ def main(argv):
                             #  "C" + str(len([m for m in methods_colors if m != 'naive']))
                         #  ) if method != 'naive' else '#555555'
                         #  colors = ['#e6194B', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#42d4f4', '#f032e6', '#bfef45', '#fabed4', '#469990', '#dcbeff', '#9A6324', '#fffac8', '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#a9a9a9', '#ffffff', '#000000']
-                        colors = ['blue', 'black', 'orange', 'red', 'cyan', 'gold', 'green', 'purple', 'teal', 'deeppink', 'steelblue', 'olive', 'tan', 'springgreen']
+                        colors = ['blue', 'dimgrey', 'orange', 'red', 'cyan', 'gold', 'green', 'purple', 'teal', 'deeppink', 'steelblue', 'darkgreen', 'tan', 'springgreen', 'cadetblue', 'mediumorchid', 'midnightblue', 'mediumvioletred']
                         color = colors[len(methods_colors) % len(colors)]
                         methods_colors[method] = color
                         markers = ['s', 'o', 'v', 'x', '^', 'D', '*', 'd']
@@ -162,9 +162,20 @@ def main(argv):
             #  )
             #  input()
 
-    make_line_chart(master_runs_data)
+    #  make_line_chart(master_runs_data)
     make_radar_chart(make_radar_data(runs_scenarios_radar_data))
     return 0
+
+def _set_line_markers(_ax, _df):
+    import random
+    lines = _ax.get_lines()
+    methods = list(_df.columns)[1:]
+    for i, (line, method) in enumerate(zip(lines, methods)):
+        line.set_marker(methods_markers.get(method, '+'))
+        line.set_markevery(((i / len(lines)) / 10, 0.1))
+        line.set_linestyle(methods_linestyles.get(method, 'dotted'))
+
+
 
 def make_radar_data(runs_scenarios_radar_data):
     from meerschaum.utils.formatting import pprint
@@ -256,17 +267,9 @@ def make_line_chart(master_runs_data):
                 legend = False,
             )
 
-            def _set_line_markers(_ax, _df):
-                lines = _ax.get_lines()
-                methods = list(_df.columns)[1:]
-                for line, method in zip(lines, methods):
-                    line.set_marker(methods_markers.get(method, '+'))
-                    line.set_markevery(30)
-                    line.set_linestyle(methods_linestyles.get(method, 'dotted'))
-
             _set_line_markers(drt_ax, drt_df)
             drt_ax.set_ylim([0.0, max_drt + 0.1])
-            plt.ylabel("Seconds")
+            drt_ax.set_ylabel("Seconds")
             drt_ax.set_title(f"Daily Runtimes of Scenario\n'{scenario}'")
             #  drt_df.to_csv(csv_path / (scenario_name + '_daily_runtime.csv'))
             #  plt.savefig(figures_path / (scenario_name + '_daily_runtime.png'), bbox_inches="tight")
@@ -302,7 +305,7 @@ def make_line_chart(master_runs_data):
             rer_ax.set_ylim([min_rer, max_rer + 1])
             rer_ax.xaxis.set_major_locator(mdates.MonthLocator())
             rer_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
-            plt.ylabel("Accuracy Percentage")
+            rer_ax.set_ylabel("Accuracy Percentage")
             rer_ax.set_title(f"Running Accuracy Rate of Scenario\n'{scenario}'")
             #  rer_df.to_csv(csv_path / (scenario_name + '_error_rate.csv'))
             #  plt.savefig(figures_path / (scenario_name + '_error_rate.png'), bbox_inches="tight")
@@ -319,7 +322,7 @@ def make_line_chart(master_runs_data):
             vl_ax.set_ylim([0, int(max_vl * 1.02)])
             vl_ax.xaxis.set_major_locator(mdates.MonthLocator())
             vl_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
-            plt.ylabel("Rows Transferred")
+            vl_ax.set_ylabel("Rows Transferred")
             vl_ax.set_title(f"Cumulative Fetched Row Volume of Scenario\n'{scenario}'")
             #  vl_figure_df.to_csv(csv_path / (scenario_name + '_cumulative_volume.csv'))
             #  plt.savefig(figures_path / (scenario_name + '_cumulative_volume.png'), bbox_inches="tight")
@@ -335,7 +338,7 @@ def make_line_chart(master_runs_data):
             dvl_ax.set_ylim([0, int(max_dvl * 1.05)])
             dvl_ax.xaxis.set_major_locator(mdates.MonthLocator())
             dvl_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
-            plt.ylabel("Rows Transferred")
+            dvl_ax.set_ylabel("Rows Transferred")
             dvl_ax.set_title(f"Daily Fetched Row Volume of Scenario\n'{scenario}'")
             dvl_ax.legend(loc='upper right', bbox_to_anchor=(1.4, 1))
             #  dvl_figure_df.to_csv(csv_path / (scenario_name + '_daily_volume.csv'))
@@ -435,10 +438,11 @@ def make_radar_chart(runs_scenarios_radar_data):
             )
             #  er_ax.legend(bbox_to_anchor=(0., 1.02, 1., .102), loc='lower left',
                                #  ncol=2, borderaxespad=0.)
-            er_ax.legend(loc='lower right', ncol=3, bbox_to_anchor=(1., -0.2))
+            er_ax.legend(loc='upper left', ncol=1, bbox_to_anchor=(1.0, 1.0), fancybox=True)
             er_ax.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
             er_ax.set_ylim(0, 100)
 
+            plt.subplots_adjust(left=0.1, bottom=0.1, right=0.78, top=0.9, wspace=0.3, hspace=0.5)
             plt.show()
 
             simples = radar_df.where(radar_df['method'] == 'simple')
@@ -472,7 +476,7 @@ def make_radar_chart(runs_scenarios_radar_data):
                 angles = np.linspace(0, 2 * np.pi, len(metrics), endpoint=False).tolist()
                 values = radar_df.where(radar_df['method'] == method)['number'].dropna().tolist()
                 ax.fill(angles, values, color=methods_colors[method], alpha=0.1)
-                lines.append(l)
+                lines.append((l, method))
 
             def _close_line(line):
                 x, y = line.get_data()
@@ -480,8 +484,14 @@ def make_radar_chart(runs_scenarios_radar_data):
                 y = np.concatenate((y, [y[0]]))
                 line.set_data(x, y)
 
-            for l in lines:
+            for i, (l, method) in enumerate(lines):
                 _close_line(l)
+                l.set_marker(methods_markers.get(method, '+'))
+                l.set_markevery(((i / len(lines)) / 10, 0.1))
+                l.set_linestyle(methods_linestyles.get(method, 'dotted'))
+
+
+
             ax.set_xticks(theta)
             ax.set_xticklabels(pt.index)
             ax.tick_params(axis='y', labelsize=8)
