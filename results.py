@@ -12,6 +12,22 @@ import pathlib
 
 methods_colors = {}
 methods_linestyles = {}
+runs = {
+    'Baseline': ['simple', 'naive'],
+    'Simples': ['simple', 'simple-backtrack', 'simple-slow-id', 'append', 'join'],
+    'Iteratives': [
+        'simple', 'unbounded-daily-rowcount', 'unbounded-simple', 'unbounded-cpi',
+        'unbounded-binary', 'bounded-daily-rowcount', 'bounded-simple', 'bounded-cpi',
+        'bounded-binary'
+    ],
+    'Correctives': [
+        'simple', 'simple-monthly-naive', 'simple-monthly-daily-rowcount', 'simple-monthly-cpi',
+        'simple-monthly-binary', 'simple-monthly-bounded-simple',
+        'simple-monthly-bounded-daily-rowcount', 'simple-monthly-bounded-cpi',
+        'simple-monthly-bounded-binary',
+    ],
+}
+
 
 def main(argv):
     from meerschaum.config._patch import apply_patch_to_config
@@ -129,10 +145,48 @@ def main(argv):
             #  )
             #  input()
 
-    #  determine_bounds(runs_scenarios_radar_data)
-    make_line_chart(master_runs_data)
-    make_radar_chart(runs_scenarios_radar_data)
+    #  make_line_chart(master_runs_data)
+    make_radar_chart(make_radar_data(runs_scenarios_radar_data))
     return 0
+
+def make_radar_data(runs_scenarios_radar_data):
+    from meerschaum.utils.formatting import pprint
+    _skip_metrics = {'daily_volume'}
+    new_radar_data = {run: {} for run in runs}
+    _scenarios_radar_data = {}
+    for _run in runs_scenarios_radar_data:
+        for scenario in runs_scenarios_radar_data[_run]:
+            if scenario not in _scenarios_radar_data:
+                _scenarios_radar_data[scenario] = {}
+            for col in runs_scenarios_radar_data[_run][scenario]:
+                if col not in _scenarios_radar_data[scenario]:
+                    _scenarios_radar_data[scenario][col] = []
+                _scenarios_radar_data[scenario][col] += runs_scenarios_radar_data[_run][scenario][col].copy()
+
+    for scenario in _scenarios_radar_data:
+        for i, strategy in enumerate(_scenarios_radar_data[scenario]['method']):
+            for run in runs:
+                if (
+                    strategy in runs[run]
+                    and new_radar_data[run].get(scenario, {}).get('method', []).count(strategy) < 5
+                    and _scenarios_radar_data[scenario]['metric'][i] not in _skip_metrics
+                ):
+                    if scenario not in new_radar_data[run]:
+                        new_radar_data[run][scenario] = {'method': [], 'metric': [], 'number': []}
+                    for col in new_radar_data[run][scenario]:
+                        new_radar_data[run][scenario][col].append(_scenarios_radar_data[scenario][col][i])
+
+    incomplete_runs = []
+    for run in new_radar_data:
+        for scenario in new_radar_data[run]:
+            if len(set(new_radar_data[run][scenario]['method'])) != len(runs[run]):
+                incomplete_runs.append((run, scenario))
+
+    for run, scenario in incomplete_runs:
+        del new_radar_data[run][scenario]
+    return new_radar_data
+
+
 
 scenarios_preset_metric_bounds = {}
 
@@ -141,12 +195,6 @@ def make_line_chart(master_runs_data):
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
     pd = import_pandas()
-    runs = {
-        'Baseline': ['simple', 'naive'],
-        'Simples': ['simple', 'simple-backtrack', 'simple-slow-id', 'append', 'join'],
-        'Iteratives': ['simple', 'daily-rowcount', 'unbounded-cpi', 'unbounded-binary', 'bounded-cpi', 'bounded-binary'],
-        'Correctives': ['simple', 'simple-monthly-naive', 'simple-monthly-cpi', 'simple-monthly-binary', 'simple-monthly-bounded-simple', 'simple-monthly-bounded-cpi', 'simple-monthly-bounded-binary'],
-    }
     #  runs['All'] = runs['Baseline'] + runs['Simples'] + runs['Iteratives'] + runs['Correctives']
 
     for run, strategies in runs.items():
@@ -258,7 +306,7 @@ def make_line_chart(master_runs_data):
             dvl_ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
             plt.ylabel("Rows Transferred")
             dvl_ax.set_title(f"Daily Fetched Row Volume of Scenario\n'{scenario}'")
-            dvl_ax.legend(loc='upper right', bbox_to_anchor=(1.35, 1))
+            dvl_ax.legend(loc='upper right', bbox_to_anchor=(1.4, 1))
             #  dvl_figure_df.to_csv(csv_path / (scenario_name + '_daily_volume.csv'))
             #  plt.savefig(figures_path / (scenario_name + '_daily_volume.png'), bbox_inches="tight")
 
@@ -297,8 +345,8 @@ def determine_bounds(runs_scenarios_radar_data):
             naive_daily_runtime = naives.where(naives['metric'] == 'daily_runtime')['number'].dropna().reset_index(drop=True)[0]
             scenarios_preset_metric_bounds[scenario] = {
                 'error_rate': (0, 100),
-                'cumulative_volume': (simple_cumulative_volume, simple_cumulative_volume * 1.25),
-                'daily_runtime': (simple_daily_runtime, simple_daily_runtime * 1.25),
+                'cumulative_volume': (simple_cumulative_volume, simple_cumulative_volume * 2.0),
+                'daily_runtime': (simple_daily_runtime, simple_daily_runtime * 2.0),
             }
 
             
@@ -310,6 +358,7 @@ def make_radar_chart(runs_scenarios_radar_data):
     pd = import_pandas()
     higher_metrics = ('error_rate',)
     for run, scenarios_radar_data in runs_scenarios_radar_data.items():
+        print(run)
         for scenario, radar_data in scenarios_radar_data.items():
             radar_df = pd.DataFrame(radar_data)
             daily_runtime_df = radar_df.where(radar_df['metric'] == 'daily_runtime').dropna().sort_values(by='number').reset_index(drop=True)
@@ -352,7 +401,9 @@ def make_radar_chart(runs_scenarios_radar_data):
                 #  linestyle=[methods_linestyles.get(method, 'dashdot') for method in error_rate_pt],
                 ax=er_ax,
             )
-            er_ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1))
+            #  er_ax.legend(bbox_to_anchor=(0., 1.02, 1., .102), loc='lower left',
+                               #  ncol=2, borderaxespad=0.)
+            er_ax.legend(loc='lower right', ncol=2, bbox_to_anchor=(1., 0.))
             er_ax.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
             er_ax.set_ylim(0, 100)
 
