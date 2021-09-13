@@ -7,13 +7,13 @@ SYNCX_DIR=~/.config/meerschaum/plugins/syncx
 SOURCE=sql:memory
 TARGET=sql:memory
 # SCENARIOS="single-append-only multiple-large-n-append-only single-known-backlog unknown-backlog"
-SCENARIOS="unknown-backlog"
+SCENARIOS="multiple-large-n-append-only"
 COOLDOWN=10
 BACKUP_DIR=~/syncx_results/
 mkdir -p $BACKUP_DIR
 
 DATASETS=("cumulative_volume" "daily_runtime" "daily_volume" "error_rate" "errors" "monthly_runtime")
-RUNS=("00_baseline" "01_simples" "02_iteratives" "03_correctives")
+RUNS=("00_baseline" "01_simples" "02_iteratives" "03_correctives" "04_patch")
 STRATS=(
   ### Baseline
   "simple naive"
@@ -26,6 +26,9 @@ STRATS=(
 
   ### Correctives
   "simple-monthly-naive simple-monthly-daily-rowcount simple-monthly-cpi simple-monthly-binary simple-monthly-bounded-simple simple-monthly-bounded-daily-rowcount simple-monthly-bounded-cpi simple-monthly-bounded-binary"
+
+  ### Patch
+  "unbounded-binary bounded-binary simple-monthly-binary unbounded-daily-rowcount bounded-daily-rowcount simple-monthly-daily-rowcount"
 )
 
 for i in "${@}"; do
