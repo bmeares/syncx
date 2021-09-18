@@ -61,7 +61,7 @@ def _simple_backtrack_fetch(
         **kw
     ) -> Union['pd.DataFrame', None]:
     sync_time = pipe.get_sync_time(debug=debug)
-    bti = DEFAULT_BTI_INIT if bti is None else bti
+    bti = datetime.timedelta(hours=24) if bti is None else bti
     begin = (sync_time - bti) if sync_time is not None else None
     return pipe.fetch(begin=begin, debug=debug, **kw)
 
@@ -353,6 +353,190 @@ def _cpi_fetch(
         if df is not None:
             return pd.concat(fetched_dfs).drop_duplicates()
     return None
+
+
+#  def _bloom_fetch(
+        #  pipe: Pipe,
+        #  with_extras: bool = False,
+        #  begin: Optional[datetime.datetime] = None,
+        #  end: Optional[datetime.datetime] = None,
+        #  debug: bool = False,
+        #  **kw
+    #  ) -> 'pd.DataFrame':
+    #  """
+    #  Determine which rows to fetch using a bloom filter.
+    #  """
+    #  _id = None
+    #  query = """
+    #  WITH RECURSIVE t(c) as (
+        #  SELECT (EXTRACT(EPOCH FROM {target_dt_name}) - {begin_int})::BIGINT
+        #  FROM {pipe_name}
+        #  WHERE {target_dt_name} > '{begin}'::TIMESTAMP AND {target_dt_name} <= '{end}'::TIMESTAMP
+    #  """ + (f" AND {target_id_name} = '{_id}'" if _id is not None else '') +
+    #  """
+    #  ), r(c,n) AS (
+        #  SELECT t.c, row_number() OVER () FROM t
+    #  ), p(c,n) AS (
+        #  SELECT c, n FROM r WHERE n = 1
+        #  UNION ALL
+        #  SELECT ((r.c + p.c + 1931) * 3863) % 7723, r.n
+        #  FROM p JOIN r ON p.n + 1 = r.n
+    #  )
+    #  SELECT c
+    #  FROM p WHERE n = (
+        #  SELECT max(n) FROM p
+    #  )
+    #  """
+
+    #  from .cpi import _choose_prime
+    #  from meerschaum.utils.misc import round_time
+    #  from meerschaum.connectors.sql.tools import sql_item_name
+    #  from meerschaum.utils.packages import import_pandas
+    #  import galois
+    #  import numpy as np
+    #  pd = import_pandas()
+    #  CPI_THRESHOLD = 1000
+
+    #  source_dt_name = sql_item_name(pipe.columns['datetime'], pipe.connector.flavor)
+    #  target_dt_name = sql_item_name(pipe.columns['datetime'], pipe.instance_connector.flavor)
+    #  source_id_name = (
+        #  sql_item_name(pipe.columns['id'], pipe.connector.flavor)
+        #  if 'id' in pipe.columns else None
+    #  )
+    #  target_id_name = (
+        #  sql_item_name(pipe.columns['id'], pipe.instance_connector.flavor)
+        #  if 'id' in pipe.columns else None
+    #  )
+    #  if begin is None:
+        #  begin_query = f"""
+        #  WITH definition AS ({pipe.parameters['fetch']['definition']})
+        #  SELECT MIN({source_dt_name}) AS dt
+        #  FROM definition
+        #  """
+        #  begin = pipe.instance_connector.value(begin_query, debug=debug)
+
+    #  if end is None:
+        #  end_query = f"""
+        #  WITH definition AS ({pipe.parameters['fetch']['definition']})
+        #  SELECT MAX({source_dt_name}) AS dt
+        #  FROM definition
+        #  """
+        #  end = pipe.instance_connector.value(end_query, debug=debug)
+
+    #  begin_int = int(begin.replace(tzinfo=datetime.timezone.utc).timestamp())
+    #  end_int = int(end.replace(tzinfo=datetime.timezone.utc).timestamp() - begin_int) + 1
+
+    #  pipe_name = sql_item_name(str(pipe), pipe.instance_connector.flavor)
+    #  ids_query = f"SELECT DISTINCT {target_id_name} FROM {pipe_name}"
+    #  target_ids = (
+        #  list(pipe.instance_connector.read(ids_query, debug=debug)[pipe.columns['id']])
+        #  if target_id_name is not None else [None]
+    #  )
+
+    #  ### TODO get new IDs from source
+    #  #  get_new_ids = 
+
+    #  def _per_id(_id):
+        #  source_rowcount = pipe.connector.get_pipe_rowcount(
+            #  pipe, remote=True, begin=begin, end=end, debug=debug, params={pipe.columns['id']: _id},
+        #  )
+        #  target_rowcount = pipe.instance_connector.get_pipe_rowcount(
+            #  pipe, begin=begin, end=end, debug=debug, params={pipe.columns['id']: _id}
+        #  )
+
+        #  if source_rowcount == target_rowcount:
+            #  return None           
+
+
+        #  m = int(source_rowcount - target_rowcount) * 3
+        #  if m > CPI_THRESHOLD or target_rowcount == 0:
+            #  fetched_df = pipe.fetch(begin=begin, end=end, params={pipe.columns['id']: _id}, debug=debug)
+            #  return pipe.filter_existing(fetched_df, debug=debug)
+
+        #  primes = [
+            #  (_choose_prime(_ei * scalar) for scalar in range(1, 4))
+            #  for _ei in [end_int * 1.1, end_int * 1.2, end_int * 1.3]
+        #  ]
+
+        #  _source_mod = ('%' if pipe.connector.flavor == 'duckdb' else '%%')
+        #  _target_mod = ('%' if pipe.instance_connector.flavor == 'duckdb' else '%%')
+        #  target_hash_queries = [(f"""
+        #  WITH RECURSIVE t(c) as (
+            #  SELECT (EXTRACT(EPOCH FROM {target_dt_name}) - {begin_int})::BIGINT
+            #  FROM {pipe_name}
+            #  WHERE {target_dt_name} > '{begin}'::TIMESTAMP AND {target_dt_name} <= '{end}'::TIMESTAMP
+        #  """ + (f" AND {target_id_name} = '{_id}'" if _id is not None else '') +
+        #  f"""
+        #  ), r(c,n) AS (
+            #  SELECT t.c, row_number() OVER () FROM t
+        #  ), p(c,n) AS (
+            #  SELECT c, n FROM r WHERE n = 1
+            #  UNION ALL
+            #  SELECT ((r.c + p.c + {prime1}) * {prime2}) """ + _target_mod + f""" {prime3}, r.n
+            #  FROM p JOIN r ON p.n + 1 = r.n
+        #  )
+        #  SELECT c
+        #  FROM p WHERE n = (
+            #  SELECT max(n) FROM p
+        #  ) 
+        #  """) for prime1, prime2, prime3 in primes]
+
+        #  source_hash_queries = [(f"""
+        #  WITH RECURSIVE t(c) as (
+            #  SELECT (EXTRACT(EPOCH FROM {source_dt_name}) - {begin_int})::BIGINT
+            #  FROM (
+                #  SELECT {source_dt_name}
+                #  FROM ({pipe.parameters['fetch']['definition']}) AS definition
+                #  WHERE {source_dt_name} > '{begin}'::TIMESTAMP AND {source_dt_name} <= '{end}'::TIMESTAMP
+        #  """ + (f" AND {target_id_name} = '{_id}'" if _id is not None else '') +
+        #  f"""
+            #  ) AS src
+        #  ), r(c,n) AS (
+            #  SELECT t.c, row_number() OVER () FROM t
+        #  ), p(c,n) AS (
+            #  SELECT c, n FROM r WHERE n = 1
+            #  UNION ALL
+            #  SELECT ((r.c + p.c + {prime1}) * {prime2}) """ + _source_mod + f""" {prime3}, r.n
+            #  FROM p JOIN r ON p.n + 1 = r.n
+        #  )
+        #  SELECT c
+        #  FROM p WHERE n = (
+            #  SELECT max(n) FROM p
+        #  ) 
+        #  """) for prime1, prime2, prime3 in primes]
+        #  chis_source = GF([
+            #  pipe.connector.value(query, debug=debug) % prime for query in source_chi_queries]
+        #  )
+        #  chis_target = GF([
+            #  pipe.instance_connector.value(query, debug=debug) % prime
+            #  for query in target_chi_queries]
+        #  )
+        #  ratios = np.divide(chis_source, chis_target)
+        #  polynomial_fZs = GF([[(Z**i) for i in range(m)] for Z in fZs])
+        #  coefficients = np.linalg.solve(
+            #  polynomial_fZs,
+            #  ratios
+        #  )
+        #  poly = galois.Poly(coefficients, order='asc')
+        #  delta = [datetime.datetime.utcfromtimestamp(int(offset) + begin_int) for offset in poly.roots()]
+        #  final_query = f"""
+        #  WITH definition AS (
+            #  {pipe.parameters['fetch']['definition']}
+        #  ) SELECT * FROM definition
+        #  WHERE {source_dt_name} IN ("""
+        #  for dt in delta:
+            #  final_query += f"'{dt}'::TIMESTAMP, "
+        #  final_query = (
+            #  final_query[:-2] + ')' + (f" AND {source_id_name} = '{_id}'" if _id is not None else '')
+        #  )
+        #  return pipe.connector.read(final_query, debug=debug)
+    
+    #  fetched_dfs = [_per_id(_id) for _id in target_ids]
+    #  for df in fetched_dfs:
+        #  if df is not None:
+            #  return pd.concat(fetched_dfs).drop_duplicates()
+    #  return None
+
 
 
 def _binary_fetch(

@@ -7,7 +7,7 @@ SYNCX_DIR=~/.config/meerschaum/plugins/syncx
 SOURCE=sql:memory
 TARGET=sql:memory
 # SCENARIOS="single-append-only multiple-large-n-append-only single-known-backlog unknown-backlog"
-SCENARIOS="multiple-large-n-append-only"
+SCENARIOS="single-known-backlog"
 COOLDOWN=10
 BACKUP_DIR=~/syncx_results/
 mkdir -p $BACKUP_DIR

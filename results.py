@@ -14,23 +14,25 @@ methods_colors = {}
 methods_linestyles = {}
 methods_markers = {}
 runs = {
-    'Baseline': ['simple', 'naive'],
-    'Simples': ['simple', 'simple-backtrack', 'simple-slow-id', 'append', 'join'],
+    'baseline': ['simple', 'naive'],
+    'simples': ['simple', 'simple-backtrack', 'simple-slow-id', 'append', 'join'],
     #  'Iteratives': [
         #  'simple', 'unbounded-daily-rowcount', 'unbounded-simple', 'unbounded-cpi',
         #  'unbounded-binary', 'bounded-daily-rowcount', 'bounded-simple', 'bounded-cpi',
         #  'bounded-binary'
     #  ],
-    'Unbounded': [
+    'unbounded': [
         'simple', 'unbounded-simple', 'unbounded-daily-rowcount', 'unbounded-binary', 'unbounded-cpi',
     ],
-    'Bounded': [
+    'bounded': [
         'simple', 'bounded-simple', 'bounded-daily-rowcount', 'bounded-binary', 'bounded-cpi',
     ],
-    'Unbounded Correctives': [
+    'unbounded-correctives': [
         'simple', 'simple-monthly-naive', 'simple-monthly-daily-rowcount', 'simple-monthly-binary', 'simple-monthly-cpi',
     ],
-    'Bounded Correctives': ['simple', 'simple-monthly-bounded-simple', 'simple-monthly-bounded-daily-rowcount', 'simple-monthly-bounded-binary', 'simple-monthly-bounded-cpi'],
+    'bounded-correctives': ['simple', 'simple-monthly-bounded-simple', 'simple-monthly-bounded-daily-rowcount', 'simple-monthly-bounded-binary', 'simple-monthly-bounded-cpi'],
+    'bounded-unbounded': ['simple', 'unbounded-simple', 'bounded-simple'],
+    'binary-daily-rowcount': ['simple', 'bounded-binary', 'bounded-daily-rowcount'],
     #  'Correctives': [
         #  'simple', 'simple-monthly-naive', 'simple-monthly-daily-rowcount', 'simple-monthly-cpi',
         #  'simple-monthly-binary', 'simple-monthly-bounded-simple',
@@ -38,9 +40,9 @@ runs = {
         #  'simple-monthly-bounded-binary',
     #  ],
 }
-runs['All'] = []
+runs['all'] = []
 for run, strats in runs.items():
-    runs['All'] += [strat for strat in strats if strat not in runs['All']]
+    runs['all'] += [strat for strat in strats if strat not in runs['All']]
 
 
 def main(argv):
@@ -57,6 +59,8 @@ def main(argv):
     if not results_dir_path.exists():
         print('Usage: python results.py {results directory}', file=sys.stderr)
         return 1
+    figures_dir_path = results_dir_path / 'figures'
+    figures_dir_path.mkdir(parents=True, exist_ok=True)
     methods = list(fetch_methods.keys()) + list(sync_methods.keys())
     generic_dtypes = {'Datetime': 'datetime64[ns]', 'Month': 'datetime64[ns]'}
     datasets_methods_dtypes = {
@@ -88,7 +92,7 @@ def main(argv):
     runs_scenarios_radar_data = {}
     for run in sorted(os.listdir(results_dir_path)):
         run_dir_path = results_dir_path / run
-        if run.startswith('.') or not os.path.isdir(run_dir_path):
+        if run.startswith('.') or run == 'figures' or not os.path.isdir(run_dir_path):
             continue
         if run not in runs_scenarios_radar_data:
             runs_scenarios_radar_data[run] = {}
@@ -165,8 +169,8 @@ def main(argv):
             #  )
             #  input()
 
-    make_line_chart(master_runs_data)
-    make_radar_chart(make_radar_data(runs_scenarios_radar_data))
+    make_line_chart(master_runs_data, figures_dir_path)
+    make_radar_chart(make_radar_data(runs_scenarios_radar_data), figures_dir_path)
     return 0
 
 def _set_line_markers(_ax, _df):
@@ -221,7 +225,7 @@ def make_radar_data(runs_scenarios_radar_data):
 
 scenarios_preset_metric_bounds = {}
 
-def make_line_chart(master_runs_data):
+def make_line_chart(master_runs_data, figures_dir_path):
     from meerschaum.utils.packages import import_pandas
     import matplotlib.pyplot as plt
     import matplotlib.dates as mdates
@@ -325,7 +329,8 @@ def make_line_chart(master_runs_data):
             #  dvl_figure_df.to_csv(csv_path / (scenario_name + '_daily_volume.csv'))
             #  plt.savefig(figures_path / (scenario_name + '_daily_volume.png'), bbox_inches="tight")
 
-            plt.show()
+            plt.savefig(figures_dir_path / (run + '_' + scenario + '_lines.png'), bbox_inches="tight")
+            #  plt.show()
 
 
 def normalize_value(value, min_value, max_value, better='higher'):
@@ -360,13 +365,13 @@ def determine_bounds(runs_scenarios_radar_data):
             naive_daily_runtime = naives.where(naives['metric'] == 'daily_runtime')['number'].dropna().reset_index(drop=True)[0]
             scenarios_preset_metric_bounds[scenario] = {
                 'error_rate': (0, 100),
-                'cumulative_volume': (simple_cumulative_volume, simple_cumulative_volume * 2.0),
-                'daily_runtime': (simple_daily_runtime, simple_daily_runtime * 2.0),
+                'cumulative_volume': (simple_cumulative_volume, simple_cumulative_volume * 4.0),
+                'daily_runtime': (simple_daily_runtime, simple_daily_runtime * 10.0),
             }
 
             
 
-def make_radar_chart(runs_scenarios_radar_data):
+def make_radar_chart(runs_scenarios_radar_data, figures_dir_path):
     import matplotlib.pyplot as plt
     from meerschaum.utils.packages import import_pandas
     import numpy as np
@@ -417,22 +422,22 @@ def make_radar_chart(runs_scenarios_radar_data):
                 #  linestyle=[methods_linestyles.get(method, 'dashdot') for method in error_rate_pt],
                 ax=er_ax,
             )
-            #  er_ax.legend(bbox_to_anchor=(0., 1.02, 1., .102), loc='lower left',
-                               #  ncol=2, borderaxespad=0.)
             er_ax.legend(loc='upper left', ncol=1, bbox_to_anchor=(1.0, 1.0), fancybox=True)
             er_ax.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
             er_ax.set_ylim(0, 100)
 
             plt.subplots_adjust(left=0.1, bottom=0.1, right=0.78, top=0.9, wspace=0.3, hspace=0.5)
-            plt.show()
+            #  plt.tight_layout(pad=0.4, w_pad=0.5, h_pad=1.0)
+            plt.savefig(figures_dir_path / (run + '_' + scenario + '_bars.png'), bbox_inches="tight")
+            #  plt.show()
 
             simples = radar_df.where(radar_df['method'] == 'simple')
             simple_cumulative_volume = simples.where(simples['metric'] == 'cumulative_volume')['number'].dropna().reset_index(drop=True)[0]
             simple_daily_runtime = simples.where(simples['metric'] == 'daily_runtime')['number'].dropna().reset_index(drop=True)[0]
             metric_bounds = {
                 'error_rate': (0, 100),
-                'cumulative_volume': (simple_cumulative_volume, simple_cumulative_volume * 1.25),
-                'daily_runtime': (simple_daily_runtime, simple_daily_runtime * 1.25),
+                'cumulative_volume': (simple_cumulative_volume, simple_cumulative_volume * 3.0),
+                'daily_runtime': (simple_daily_runtime, simple_daily_runtime * 3.0),
             }
 
             metrics = radar_df['metric'].unique()
@@ -477,10 +482,12 @@ def make_radar_chart(runs_scenarios_radar_data):
             ax.tick_params(axis='x', labelsize=8)
             ax.set_xticklabels(['        Bandwidth', 'Runtime', 'Accuracy'])
             plt.subplots_adjust(top=0.9, bottom=0.05, right=0.65, left=0.05, hspace=0, wspace=0)
+            #  plt.tight_layout(pad=0.4, w_pad=0.5, h_pad=0.5)
             plt.legend(loc='upper left', bbox_to_anchor=(1.1, 1.0))
             plt.title(f"Relative Performance for Scenario\n'{scenario}'")
             print(run, scenario)
-            plt.show()
+            #  plt.show()
+            plt.savefig(figures_dir_path / (run + '_' + scenario + '_radar.png'), bbox_inches="tight")
 
 
 
