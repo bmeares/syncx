@@ -42,7 +42,7 @@ runs = {
 }
 runs['all'] = []
 for run, strats in runs.items():
-    runs['all'] += [strat for strat in strats if strat not in runs['All']]
+    runs['all'] += [strat for strat in strats if strat not in runs['all']]
 
 
 def main(argv):
