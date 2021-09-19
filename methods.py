@@ -63,7 +63,8 @@ def _simple_backtrack_fetch(
     sync_time = pipe.get_sync_time(debug=debug)
     bti = datetime.timedelta(hours=24) if bti is None else bti
     begin = (sync_time - bti) if sync_time is not None else None
-    return pipe.fetch(begin=begin, debug=debug, **kw)
+    df = pipe.fetch(begin=begin, debug=debug, **kw)
+    return df
 
 def _simple_slow_id_fetch(
         pipe,
