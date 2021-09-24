@@ -33,7 +33,7 @@ runs = {
     'bounded-correctives': ['simple', 'simple-monthly-bounded-simple', 'simple-monthly-bounded-daily-rowcount', 'simple-monthly-bounded-binary', 'simple-monthly-bounded-cpi'],
     'bounded-unbounded': ['simple', 'unbounded-simple', 'bounded-simple'],
     'binary-daily-rowcount': ['simple', 'bounded-binary', 'bounded-daily-rowcount'],
-    'winners': ['simple', 'simple-monthly-bounded-daily-rowcount', 'simple-monthly-bounded-cpi', 'bounded-daily-rowcount', 'bounded-cpi',],
+    'winners': ['simple', 'simple-backtrack', 'simple-monthly-bounded-daily-rowcount', 'simple-monthly-bounded-cpi', 'bounded-daily-rowcount',],
     #  'Correctives': [
         #  'simple', 'simple-monthly-naive', 'simple-monthly-daily-rowcount', 'simple-monthly-cpi',
         #  'simple-monthly-binary', 'simple-monthly-bounded-simple',
@@ -497,16 +497,18 @@ def generate_weighted_scores(radar_df, run, scenario, figures_dir_path):
     )
     """
 
-    bottom, low, medium, high, top = 0.0, 0.05, 0.15, 0.8, 1.0
+    bottom, top = 0.0, 1.0
+    low = 1 / 7
+    medium, high = low*2, low*4
     metric_weights = {
         'Run-time': (bottom, top, bottom),
-        'Run-time, Bandwidth': (medium, high, low),
-        'Run-time, Accuracy': (low, high, medium),
-        'Bandwidth, Run-time': (high, medium, low),
+        'Run-time, Bandwidth, Accuracy': (medium, high, low),
+        'Run-time, Accuracy, Bandwidth': (low, high, medium),
+        'Bandwidth, Run-time, Accuracy': (high, medium, low),
         'Bandwidth': (top, bottom, bottom),
-        'Bandwidth, Accuracy': (high, low, medium),
-        'Accuracy, Run-time': (low, medium, high),
-        'Accuracy, Bandwidth': (medium, low, high),
+        'Bandwidth, Accuracy, Run-time': (high, low, medium),
+        'Accuracy, Run-time, Bandwidth': (low, medium, high),
+        'Accuracy, Bandwidth, Run-time': (medium, low, high),
         'Accuracy': (bottom, bottom, top),
     }
 
@@ -521,6 +523,7 @@ def generate_weighted_scores(radar_df, run, scenario, figures_dir_path):
     _ax = [axs[0, 0], axs[1, 0], axs[2, 0], axs[0, 1], axs[1, 1], axs[2, 1], axs[0, 2], axs[1, 2], axs[2, 2]]
     for a in _ax:
         a.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
+        a.set_ylim([0.0, 1.0])
 
     balanced_df = duckdb.query(balanced_query).to_df()
     balanced_pt = pd.pivot_table(balanced_df, values='score', columns=['method'])[balanced_df['method']]
