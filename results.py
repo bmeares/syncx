@@ -159,7 +159,7 @@ def main(argv):
             all_totals_df['Scenario'] = all_totals_df.index
             all_totals_df = all_totals_df[['Scenario'] + list(existing_cols)]
             
-        #  make_line_chart(master_runs_data, figures_dir_path)
+    make_line_chart(master_runs_data, figures_dir_path)
     make_radar_chart(make_radar_data(runs_scenarios_radar_data), figures_dir_path)
     return 0
 
