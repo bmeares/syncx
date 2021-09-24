@@ -33,6 +33,7 @@ runs = {
     'bounded-correctives': ['simple', 'simple-monthly-bounded-simple', 'simple-monthly-bounded-daily-rowcount', 'simple-monthly-bounded-binary', 'simple-monthly-bounded-cpi'],
     'bounded-unbounded': ['simple', 'unbounded-simple', 'bounded-simple'],
     'binary-daily-rowcount': ['simple', 'bounded-binary', 'bounded-daily-rowcount'],
+    'winners': ['simple', 'simple-monthly-bounded-daily-rowcount', 'simple-monthly-bounded-cpi', 'bounded-daily-rowcount', 'bounded-cpi',],
     #  'Correctives': [
         #  'simple', 'simple-monthly-naive', 'simple-monthly-daily-rowcount', 'simple-monthly-cpi',
         #  'simple-monthly-binary', 'simple-monthly-bounded-simple',
@@ -72,7 +73,7 @@ def main(argv):
     }
     readable_dataset_names = {
         'cumulative_volume': 'Number of Rows',
-        'daily_runtime': 'Runtime in Seconds',
+        'daily_runtime': 'Run-time in Seconds',
         'errors': 'Number of Errors',
     }
     datasets_dtypes = {
@@ -158,18 +159,7 @@ def main(argv):
             all_totals_df['Scenario'] = all_totals_df.index
             all_totals_df = all_totals_df[['Scenario'] + list(existing_cols)]
             
-            #  print(all_totals_df)
-            #  print(all_totals_df.to_latex(
-                #  multicolumn=True, multirow=True, longtable=False, index_names=False, index=False,
-                #  float_format="%.2f",
-                #  caption=(
-                    #  'Total ' + readable_dataset_names[dataset] + ' for Methods '
-                    #  + items_str(list(existing_cols)))
-                #  )
-            #  )
-            #  input()
-
-    make_line_chart(master_runs_data, figures_dir_path)
+        #  make_line_chart(master_runs_data, figures_dir_path)
     make_radar_chart(make_radar_data(runs_scenarios_radar_data), figures_dir_path)
     return 0
 
@@ -277,7 +267,7 @@ def make_line_chart(master_runs_data, figures_dir_path):
             _set_line_markers(drt_ax, drt_df)
             drt_ax.set_ylim([0.0, max_drt + 0.1])
             drt_ax.set_ylabel("Seconds")
-            drt_ax.set_title(f"Daily Runtimes of Scenario\n'{scenario}'")
+            drt_ax.set_title(f"Daily Run-times of Scenario\n'{scenario}'")
 
             rer_df.plot(
                 x = 'Datetime',
@@ -348,35 +338,16 @@ def normalize_value(value, min_value, max_value, better='higher'):
     return final_val
 
 
-def determine_bounds(runs_scenarios_radar_data):
-    from meerschaum.utils.packages import import_pandas
-    pd = import_pandas()
-    for run, scenarios_radar_data in runs_scenarios_radar_data.items():
-        for scenario, radar_data in scenarios_radar_data.items():
-            if scenario in scenarios_preset_metric_bounds:
-                continue
-            radar_df = pd.DataFrame(radar_data)
-            simples = radar_df.where(radar_df['method'] == 'simple')
-            naives = radar_df.where(radar_df['method'] == 'naive')
-            simple_cumulative_volume = simples.where(simples['metric'] == 'cumulative_volume')['number'].dropna().reset_index(drop=True)[0]
-            naive_cumulative_volume = naives.where(naives['metric'] == 'cumulative_volume')['number'].dropna().reset_index(drop=True)[0]
-
-            simple_daily_runtime = simples.where(simples['metric'] == 'daily_runtime')['number'].dropna().reset_index(drop=True)[0]
-            naive_daily_runtime = naives.where(naives['metric'] == 'daily_runtime')['number'].dropna().reset_index(drop=True)[0]
-            scenarios_preset_metric_bounds[scenario] = {
-                'error_rate': (0, 100),
-                'cumulative_volume': (simple_cumulative_volume, simple_cumulative_volume * 4.0),
-                'daily_runtime': (simple_daily_runtime, simple_daily_runtime * 10.0),
-            }
-
-            
-
 def make_radar_chart(runs_scenarios_radar_data, figures_dir_path):
     import matplotlib.pyplot as plt
     from meerschaum.utils.packages import import_pandas
     import numpy as np
     pd = import_pandas()
     higher_metrics = ('error_rate',)
+
+    runs_scenarios_radar_data_tmp = {}
+    runs_scenarios_radar_data_tmp['all'] = runs_scenarios_radar_data['all']
+
     for run, scenarios_radar_data in runs_scenarios_radar_data.items():
         print(run)
         for scenario, radar_data in scenarios_radar_data.items():
@@ -394,7 +365,7 @@ def make_radar_chart(runs_scenarios_radar_data, figures_dir_path):
             fig.subplots_adjust(bottom=0.2)
 
             daily_runtime_pt.plot(
-                kind='bar', title=f"Total Runtime for Scenario\n'{scenario}'", legend=False,
+                kind='bar', title=f"Total Run-time for Scenario\n'{scenario}'", legend=False,
                 ylabel='Seconds', xlabel='',
                 color=[methods_colors.get(method, '#333333') for method in daily_runtime_pt],
                 edgecolor=['#333333' for method in daily_runtime_pt],
@@ -436,8 +407,8 @@ def make_radar_chart(runs_scenarios_radar_data, figures_dir_path):
             simple_daily_runtime = simples.where(simples['metric'] == 'daily_runtime')['number'].dropna().reset_index(drop=True)[0]
             metric_bounds = {
                 'error_rate': (0, 100),
-                'cumulative_volume': (simple_cumulative_volume, simple_cumulative_volume * 3.0),
-                'daily_runtime': (simple_daily_runtime, simple_daily_runtime * 3.0),
+                'cumulative_volume': (simple_cumulative_volume, simple_cumulative_volume * 15.0),
+                'daily_runtime': (simple_daily_runtime, simple_daily_runtime * 15.0),
             }
 
             metrics = radar_df['metric'].unique()
@@ -451,6 +422,7 @@ def make_radar_chart(runs_scenarios_radar_data, figures_dir_path):
             
                 normalized_vals = metric_vals.apply(lambda x: normalize_value(x, mmin, mmax, better=('higher' if metric in higher_metrics else 'lower')))
                 radar_df['number'].update(normalized_vals[normalized_vals.notnull()])
+            generate_weighted_scores(radar_df, run, scenario, figures_dir_path)
 
             pt = pd.pivot_table(radar_df, values='number', index=['metric'], columns=['method'])
             fig = plt.figure(figsize=(12, 8))
@@ -480,7 +452,7 @@ def make_radar_chart(runs_scenarios_radar_data, figures_dir_path):
             ax.set_xticklabels(pt.index)
             ax.tick_params(axis='y', labelsize=8)
             ax.tick_params(axis='x', labelsize=8)
-            ax.set_xticklabels(['        Bandwidth', 'Runtime', 'Accuracy'])
+            ax.set_xticklabels(['        Bandwidth', 'Run-time', 'Accuracy'])
             plt.subplots_adjust(top=0.9, bottom=0.05, right=0.65, left=0.05, hspace=0, wspace=0)
             #  plt.tight_layout(pad=0.4, w_pad=0.5, h_pad=0.5)
             plt.legend(loc='upper left', bbox_to_anchor=(1.1, 1.0))
@@ -488,6 +460,105 @@ def make_radar_chart(runs_scenarios_radar_data, figures_dir_path):
             print(run, scenario)
             #  plt.show()
             plt.savefig(figures_dir_path / (run + '_' + scenario + '_radar.png'), bbox_inches="tight")
+
+
+def generate_weighted_scores(radar_df, run, scenario, figures_dir_path):
+    import matplotlib.pyplot as plt
+    import duckdb
+    from meerschaum.utils.packages import import_pandas
+    pd = import_pandas()
+    balanced_query = """
+    SELECT method, AVG(number) AS "score"
+    FROM radar_df
+    GROUP BY method
+    ORDER BY "score" DESC
+    """
+    metrics_prefix = """
+    WITH bws AS (
+        SELECT method, AVG(number) AS 'avg'
+        FROM radar_df
+        WHERE radar_df.metric = 'cumulative_volume'
+        GROUP BY method
+    ), rts AS (
+        SELECT method, AVG(number) AS 'avg'
+        FROM radar_df
+        WHERE radar_df.metric == 'daily_runtime'
+        GROUP BY method
+    ), acs AS (
+        SELECT method, AVG(number) AS 'avg'
+        FROM radar_df
+        WHERE radar_df.metric == 'error_rate'
+        GROUP BY method
+    ), scores AS (
+        SELECT bws.method, bws.avg AS 'bw_avg', rts.avg AS 'rt_avg', acs.avg AS 'ac_avg'
+        FROM bws
+        INNER JOIN rts ON rts.method = bws.method
+        INNER JOIN acs ON acs.method = bws.method
+    )
+    """
+
+    bottom, low, medium, high, top = 0.0, 0.05, 0.15, 0.8, 1.0
+    metric_weights = {
+        'Run-time': (bottom, top, bottom),
+        'Run-time, Bandwidth': (medium, high, low),
+        'Run-time, Accuracy': (low, high, medium),
+        'Bandwidth, Run-time': (high, medium, low),
+        'Bandwidth': (top, bottom, bottom),
+        'Bandwidth, Accuracy': (high, low, medium),
+        'Accuracy, Run-time': (low, medium, high),
+        'Accuracy, Bandwidth': (medium, low, high),
+        'Accuracy': (bottom, bottom, top),
+    }
+
+    fig, axs = plt.subplots(3, 3, figsize=(16, 9))
+    fig.suptitle(f"Metric-Weighted Choice Index Rankings\nfor Scenario '{scenario}'")
+    plt.subplots_adjust(left=0.1, bottom=0.1, right=0.78, top=0.9, wspace=0.2, hspace=0.2)
+    #  bl_ax = axs[0, 0]
+    #  bw_ax = axs[0, 1]
+    #  rt_ax = axs[1, 0]
+    #  ac_ax = axs[1, 1]
+    top_right_ax = axs[0, 2]
+    _ax = [axs[0, 0], axs[1, 0], axs[2, 0], axs[0, 1], axs[1, 1], axs[2, 1], axs[0, 2], axs[1, 2], axs[2, 2]]
+    for a in _ax:
+        a.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
+
+    balanced_df = duckdb.query(balanced_query).to_df()
+    balanced_pt = pd.pivot_table(balanced_df, values='score', columns=['method'])[balanced_df['method']]
+
+    #  balanced_pt.plot(
+        #  kind='bar', title=f"Balanced Choice Index Rankings\nfor Scenario '{scenario}'", legend=False,
+        #  ylabel='Index Score', xlabel='',
+        #  color=[methods_colors.get(method, '#333333') for method in balanced_pt],
+        #  edgecolor=['#333333' for method in balanced_pt],
+        #  linestyle='solid',
+        #  ax=bl_ax,
+    #  )
+
+    print(f"Balanced index for scenario '{scenario}'")
+    print(balanced_df)
+    for i, (met, (bw, rt, ac)) in enumerate(metric_weights.items()):
+        query = metrics_prefix + f"""
+        SELECT method, (({bw} * bw_avg) + ({rt} * rt_avg) + ({ac} * ac_avg)) AS "score"
+        FROM scores
+        ORDER BY "score" DESC
+        """
+        weighted_df = duckdb.query(query).to_df()
+        weighted_pt = pd.pivot_table(weighted_df, values='score', columns=['method'])[weighted_df['method']]
+        weighted_pt.plot(
+            kind='bar', title=f"{met}", legend=False,
+            ylabel='Index Score', xlabel='',
+            color=[methods_colors.get(method, '#333333') for method in weighted_pt],
+            edgecolor=['#333333' for method in weighted_pt],
+            linestyle='solid',
+            #  linestyle=[methods_linestyles.get(method, 'dashdot') for method in daily_runtime_pt],
+            ax=_ax[i],
+        )
+
+        print(f"Weighted index for scenario '{scenario}' by metric '{met}':")
+        print(weighted_df)
+
+    top_right_ax.legend(loc='upper left', ncol=1, bbox_to_anchor=(1.0, 1.0), fancybox=True)
+    plt.savefig(figures_dir_path / (run + '_' + scenario + '_choice_index.png'), bbox_inches="tight")
 
 
 
