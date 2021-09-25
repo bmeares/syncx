@@ -159,7 +159,7 @@ def main(argv):
             all_totals_df['Scenario'] = all_totals_df.index
             all_totals_df = all_totals_df[['Scenario'] + list(existing_cols)]
             
-    make_line_chart(master_runs_data, figures_dir_path)
+    #  make_line_chart(master_runs_data, figures_dir_path)
     make_radar_chart(make_radar_data(runs_scenarios_radar_data), figures_dir_path)
     return 0
 
@@ -514,12 +514,22 @@ def generate_weighted_scores(radar_df, run, scenario, figures_dir_path):
 
     fig, axs = plt.subplots(3, 3, figsize=(16, 9))
     fig.suptitle(f"Metric-Weighted Choice Index Rankings\nfor Scenario '{scenario}'")
-    plt.subplots_adjust(left=0.1, bottom=0.1, right=0.78, top=0.9, wspace=0.2, hspace=0.2)
+    plt.subplots_adjust(left=0.2, bottom=0.1, right=0.78, top=0.8, wspace=0.2, hspace=0.2)
     #  bl_ax = axs[0, 0]
     #  bw_ax = axs[0, 1]
     #  rt_ax = axs[1, 0]
     #  ac_ax = axs[1, 1]
     top_right_ax = axs[0, 2]
+    top_middle_ax = axs[0, 1]
+    middle_left_ax = axs[1, 0]
+    top_middle_ax.text(-0.2, 1.5, "First Priority", fontsize='x-large')
+    top_middle_ax.text(-0.2, 1.25, "Bandwidth", fontsize='large', fontweight='semibold')
+    top_middle_ax.text(-1.36, 1.25, "Run-time", fontsize='large', fontweight='semibold')
+    top_middle_ax.text(1.02, 1.25, "Accuracy", fontsize='large', fontweight='semibold')
+    middle_left_ax.text(-1.6, 0.5, "Second\nPriority", fontsize='x-large')
+    middle_left_ax.text(-1.2, 0.5, "Bandwidth", fontsize='large', fontweight='semibold')
+    middle_left_ax.text(-1.2, 1.7, "Run-time", fontsize='large', fontweight='semibold')
+    middle_left_ax.text(-1.2, -0.7, "Accuracy", fontsize='large', fontweight='semibold')
     _ax = [axs[0, 0], axs[1, 0], axs[2, 0], axs[0, 1], axs[1, 1], axs[2, 1], axs[0, 2], axs[1, 2], axs[2, 2]]
     for a in _ax:
         a.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)
@@ -548,8 +558,8 @@ def generate_weighted_scores(radar_df, run, scenario, figures_dir_path):
         weighted_df = duckdb.query(query).to_df()
         weighted_pt = pd.pivot_table(weighted_df, values='score', columns=['method'])[weighted_df['method']]
         weighted_pt.plot(
-            kind='bar', title=f"{met}", legend=False,
-            ylabel='Index Score', xlabel='',
+            kind='bar', title="", legend=False,
+            ylabel='Score', xlabel='',
             color=[methods_colors.get(method, '#333333') for method in weighted_pt],
             edgecolor=['#333333' for method in weighted_pt],
             linestyle='solid',
@@ -561,6 +571,7 @@ def generate_weighted_scores(radar_df, run, scenario, figures_dir_path):
         print(weighted_df)
 
     top_right_ax.legend(loc='upper left', ncol=1, bbox_to_anchor=(1.0, 1.0), fancybox=True)
+    #  plt.show()
     plt.savefig(figures_dir_path / (run + '_' + scenario + '_choice_index.png'), bbox_inches="tight")
 
 

@@ -40,8 +40,8 @@ add_plugin_argument(
 @make_action
 def scenarios(
         action: Optional[List[str]] = None,
-        source: Optional[str] = 'sql:main',
-        target: Optional[str] = 'sql:main',
+        source: Optional[str] = 'sql:memory',
+        target: Optional[str] = 'sql:memory',
         sync_methods: Optional[List[str]] = None,
         begin: Optional[datetime.datetime] = None,
         end: Optional[datetime.datetime] = None,
