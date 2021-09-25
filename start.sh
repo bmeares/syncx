@@ -13,7 +13,7 @@ BACKUP_DIR=~/syncx_results/
 mkdir -p $BACKUP_DIR
 
 DATASETS=("cumulative_volume" "daily_runtime" "daily_volume" "error_rate" "errors" "monthly_runtime")
-RUNS=("00_baseline" "01_simples" "02_iteratives" "03_correctives" "04_patch")
+RUNS=("00_baseline" "01_simples" "02_iteratives" "03_correctives" "04_patch" "05_another_patch")
 STRATS=(
   ### Baseline
   "simple naive"
