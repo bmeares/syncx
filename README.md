@@ -50,6 +50,7 @@ git clone https://github.com/bmeares/syncx ~/.config/meerschaum/plugins/syncx
 
 ## Usage
 Run the included `start.sh` script followed by the number of the batch:
+
 0. Baseline (*Naïve Sync* vs *Simple Sync*)
 1. *Simple Syncs*
 2. *Iterative Syncs*
