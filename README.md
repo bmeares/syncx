@@ -4,9 +4,16 @@ This Meerschaum plugin implements experimental synchronization strategies which 
 
 You can [download the results tarball](https://meerschaum.io/files/syncx_results.tar.gz) or [browse the figures](https://meerschaum.io/files/syncx_results/figures/), which includes figures like the following:
 
+![Daily performances](https://meerschaum.io/files/syncx_results/figures/winners_unknown-backlog_lines.png)
 
+![Summary radar chart](https://meerschaum.io/files/syncx_results/figures/unbounded_unknown-backlog_radar.png)
 
-The strategies are organized into three classes:
+![Choice Indices](https://meerschaum.io/files/syncx_results/figures/zummary_unknown-backlog_choice_2_priorities.png)
+
+## Strategies Overview
+
+The strategies are implemented in the `methods.py` module and are organized into three classes:
+
 - **Simple Syncs**  
   Minimize run-time and bandwidth at the expense of accuracy.
   - *Simple Sync*  
