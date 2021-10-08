@@ -31,14 +31,12 @@ def reconcile_sets(A, B, Zs, begin_int: int, end_int: int):
     Find the elements in set A (DeltaA) not found in set B.
     Assume set B is a subset of A (DeltaB is the null set).
     """
-    import math, numpy as np
+    import numpy as np
     import galois
 
     m = len(Zs)
     mod_by_prime = _choose_prime(end_int)
     GF = galois.GF(mod_by_prime)
-    fA = GF(A)
-    fB = GF(B)
     fZs = np.negative(GF([abs(z) for z in Zs]))
 
     ### Calculate the characteristic polynomials for each test value Z.
@@ -58,12 +56,6 @@ def reconcile_sets(A, B, Zs, begin_int: int, end_int: int):
     ### Build the matrix of Zs for the polynomial stated above.
     ### e.g. Z = -2 -> [1, -2, 4, -8, 16, -32]
     polynomial_fZs = GF([[(Z**i) for i in range(m)] for Z in fZs])
-    print('fZs')
-    print(fZs)
-    print('polyfzs')
-    print(polynomial_fZs)
-    print('ratios')
-    print(ratios)
 
     coefficients = np.linalg.solve(
         polynomial_fZs,

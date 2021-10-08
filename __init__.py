@@ -246,33 +246,6 @@ def sync(
     """
     :param sync_method:
         The method used to request new data based on the cache context.
-        Options:
-
-            - `naive`
-                Select all data.
-
-            - `simple`
-                Select data newer than the most recent datetime.
-                
-            - `simple-backtrack`
-                Select data newer than the most recent datetime, minus a defined backtrack interval.
-            
-            - `simple-slow-id`
-                Select data newer than the slowest ID's most recent datetime.
-
-            - `append`
-                Select data newer than each ID's most recent datetimes and append the results.
-
-            - `append-new-ids`
-                Same as `append` with a subquery to catch new IDs.
-
-            - `join`
-                Build a `sync_times` table from the cache, then generate
-                a subquery to reproduce the table and LEFT OUTER JOIN the table
-                on the remote table.
-
-            - `join-new-ids`
-                Same as `join` with an `OR` clause to catch new IDs.
     """
     from meerschaum import Pipe
     from meerschaum.utils.warnings import warn

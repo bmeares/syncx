@@ -34,7 +34,8 @@ runs = {
     'bounded-unbounded': ['simple', 'unbounded-simple', 'bounded-simple'],
     'binary-daily-rowcount': ['simple', 'bounded-binary', 'bounded-daily-rowcount'],
     #  'winners': ['simple', 'simple-monthly-bounded-simple', 'simple-monthly-bounded-cpi', 'bounded-daily-rowcount'],
-    'diverse': ['simple', 'join', 'unbounded-daily-rowcount', 'unbounded-cpi', 'simple-monthly-bounded-simple', 'unbounded-binary'],
+    'winners': ['simple', 'simple-backtrack', 'join', 'bounded-daily-rowcount', 'unbounded-cpi', 'simple-monthly-bounded-simple'],
+    'zummary': ['simple', 'unbounded-daily-rowcount', 'simple-monthly-bounded-simple'],
     #  'Correctives': [
         #  'simple', 'simple-monthly-naive', 'simple-monthly-daily-rowcount', 'simple-monthly-cpi',
         #  'simple-monthly-binary', 'simple-monthly-bounded-simple',
@@ -160,7 +161,7 @@ def main(argv):
             all_totals_df['Scenario'] = all_totals_df.index
             all_totals_df = all_totals_df[['Scenario'] + list(existing_cols)]
             
-    #  make_line_chart(master_runs_data, figures_dir_path)
+    make_line_chart(master_runs_data, figures_dir_path)
     make_radar_chart(make_radar_data(runs_scenarios_radar_data), figures_dir_path)
     return 0
 
@@ -422,7 +423,7 @@ def make_radar_chart(runs_scenarios_radar_data, figures_dir_path):
                 #  mmin, mmax = scenarios_preset_metric_bounds[scenario][metric]
                 mmin, mmax = metric_bounds[metric]
             
-                normalized_vals = metric_vals.apply(lambda x: normalize_value(x, mmin, mmax, better=('higher' if metric in higher_metrics else 'lower')))
+                normalized_vals = metric_vals.apply(lambda x: normalize_value(x, mmin, mmax, better=('higher' if metric in higher_metrics else 'lower'), adjust=True))
                 choice_vals = metric_vals.apply(lambda x: normalize_value(x, mmin, mmax, better=('higher' if metric in higher_metrics else 'lower'), adjust=False))
                 radar_df['number'].update(normalized_vals[normalized_vals.notnull()])
                 choice_df['number'].update(choice_vals[choice_vals.notnull()])
@@ -543,7 +544,7 @@ def generate_weighted_scores(radar_df, run, scenario, figures_dir_path, prioriti
         top_middle_ax = axs[0, 1]
         _ax = [axs[0, 0], axs[1, 0], axs[2, 0], axs[0, 1], axs[1, 1], axs[2, 1], axs[0, 2], axs[1, 2], axs[2, 2]]
         middle_left_ax = axs[1, 0]
-        top_middle_ax.text(-0.25, 1.5, f"First Priority ({round(100 * high, 2)}" + "%)", fontsize='x-large')
+        top_middle_ax.text(-0.33, 1.5, f"First Priority ({round(100 * high, 2)}" + "%)", fontsize='x-large')
     else:
         top_right_ax = axs[-1]
         top_middle_ax = axs[1]

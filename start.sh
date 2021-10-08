@@ -26,12 +26,6 @@ STRATS=(
 
   ### Correctives
   "simple-monthly-naive simple-monthly-iterative-simple simple-monthly-daily-rowcount simple-monthly-cpi simple-monthly-binary simple-monthly-bounded-simple simple-monthly-bounded-daily-rowcount simple-monthly-bounded-cpi simple-monthly-bounded-binary"
-
-  ### Patch
-  "unbounded-binary bounded-binary simple-monthly-binary unbounded-daily-rowcount bounded-daily-rowcount simple-monthly-daily-rowcount"
-
-  ### Another Patch
-  "simple-monthly-iterative-simple"
 )
 
 for i in "${@}"; do
