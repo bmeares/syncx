@@ -12,9 +12,9 @@ from meerschaum.utils.typing import Optional, Any, List, SuccessTuple
 from collections import namedtuple
 ErrorRow = namedtuple('ErrorRow', ('scenario', 'method', 'error'))
 
-__version__ = '0.1.2'
+__version__ = '0.1.3'
 required = [
-    'numpy', 'prime-sieve', 'dateutil', 'galois', 'matplotlib', 'duckdb',
+    'numpy', 'prime-sieve', 'python-dateutil', 'galois', 'matplotlib', 'duckdb',
 ]
 
 add_plugin_argument(
