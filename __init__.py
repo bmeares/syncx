@@ -12,7 +12,7 @@ from meerschaum.utils.typing import Optional, Any, List, SuccessTuple
 from collections import namedtuple
 ErrorRow = namedtuple('ErrorRow', ('scenario', 'method', 'error'))
 
-__version__ = '0.1.5'
+__version__ = '0.1.6'
 required = [
     'numpy', 'prime-sieve', 'python-dateutil', 'galois', 'matplotlib', 'duckdb',
 ]
