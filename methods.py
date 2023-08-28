@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime
 from meerschaum import Pipe
 from meerschaum.utils.typing import Any, Union, Optional, SuccessTuple, Callable, Tuple
-from meerschaum.connectors.sql._tools import sql_item_name, table_exists, dateadd_str
+from meerschaum.utils.sql import sql_item_name, table_exists, dateadd_str
 
 CHUNKSIZE = 1000
 

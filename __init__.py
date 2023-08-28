@@ -12,7 +12,7 @@ from meerschaum.utils.typing import Optional, Any, List, SuccessTuple
 from collections import namedtuple
 ErrorRow = namedtuple('ErrorRow', ('scenario', 'method', 'error'))
 
-__version__ = '0.1.3'
+__version__ = '0.1.5'
 required = [
     'numpy', 'prime-sieve', 'python-dateutil', 'galois', 'matplotlib', 'duckdb',
 ]
@@ -257,7 +257,9 @@ def sync(
 
     conn_keys = pipe.parameters.get('fetch', {}).get('connector', 'sql')
     conn = parse_connector_keys(conn_keys)
-    _pipe = Pipe(instance=pipe.instance_connector, **pipe.meta)
+    meta = pipe.meta.copy()
+    meta['instance'] = pipe.instance_keys
+    _pipe = Pipe(**meta)
     _pipe._connector = conn
 
     if backtrack_minutes is not None:
